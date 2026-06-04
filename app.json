@@ -36,6 +36,26 @@
             "description": "Redis endpoint password, from redislabs.com",
             "value": ""
         },
+        "MONGO_URI": {
+            "description": "MongoDB connection URI. Alternative to Redis.",
+            "value": "",
+            "required": false
+        },
+        "BOT_TOKEN": {
+            "description": "Bot token from @BotFather. Optional for assistant bot.",
+            "value": "",
+            "required": false
+        },
+        "LOG_CHANNEL": {
+            "description": "Channel ID for logging. Auto-created if not set.",
+            "value": "",
+            "required": false
+        },
+        "DATABASE_URL": {
+            "description": "PostgreSQL database URL. Alternative to Redis/MongoDB.",
+            "value": "",
+            "required": false
+        },
         "HEROKU_API": {
             "description": "Heroku API token. Mandatory for Heroku Deploy...",
             "value": "",

@@ -564,6 +564,23 @@ async def progress(current, total, event, start, type_of_ps, file_name=None):
 # @xditya @sppidy @techierror
 
 
+async def _disconnect_all():
+    """Disconnect all Telegram clients gracefully before restart/shutdown."""
+    from .. import LOGS, asst, ultroid_bot, vcClient
+
+    for name, client in (
+        ("vcClient", vcClient),
+        ("ultroid_bot", ultroid_bot),
+        ("asst", asst),
+    ):
+        if client is not None:
+            try:
+                await client.disconnect()
+                LOGS.info(f"Disconnected {name}.")
+            except Exception as er:
+                LOGS.warning(f"Failed to disconnect {name}: {er}")
+
+
 async def restart(ult=None):
     if Var.HEROKU_APP_NAME and Var.HEROKU_API:
         try:
@@ -580,6 +597,7 @@ async def restart(ult=None):
                 )
             LOGS.exception(er)
     else:
+        await _disconnect_all()
         if len(sys.argv) == 1:
             os.execl(sys.executable, sys.executable, "-m", "pyUltroid")
         else:
@@ -601,6 +619,7 @@ async def shutdown(ult):
     from .. import HOSTED_ON, LOGS
 
     ult = await eor(ult, "Shutting Down")
+    await _disconnect_all()
     if HOSTED_ON == "heroku":
         if not (Var.HEROKU_APP_NAME and Var.HEROKU_API):
             return await ult.edit("Please Fill `HEROKU_APP_NAME` and `HEROKU_API`")

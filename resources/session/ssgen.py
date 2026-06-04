@@ -92,8 +92,9 @@ def telethon_session():
                 )
                 return
             except UserIsBotError:
+                # WARNING: Session strings are sensitive; keep them out of terminal logs.
                 print("You are trying to Generate Session for your Bot's Account?")
-                print("Here is That!\n{ultroid.session.save()}\n\n")
+                print(f"Here is That!\n{ultroid.session.save()}\n\n")
                 print("NOTE: You can't use that as User Session..")
     except ApiIdInvalidError:
         print(

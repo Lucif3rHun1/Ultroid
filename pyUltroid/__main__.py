@@ -13,7 +13,7 @@ def main():
     import sys
     import time
 
-    from .fns.helper import bash, time_formatter, updater
+    from .fns.helper import _disconnect_all, bash, time_formatter, updater
     from .startup.funcs import (
         WasItRestart,
         autopilot,
@@ -38,6 +38,7 @@ def main():
     ):
         ultroid_bot.run_in_loop(bash("bash installer.sh"))
 
+        ultroid_bot.run_in_loop(_disconnect_all())
         os.execl(sys.executable, sys.executable, "-m", "pyUltroid")
 
     ultroid_bot.run_in_loop(startup_stuff())

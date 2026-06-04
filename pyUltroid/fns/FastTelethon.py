@@ -306,16 +306,21 @@ class ParallelTransferrer:
         part_count = math.ceil(file_size / part_size)
         await self._init_download(connection_count, file, part_count, part_size)
 
-        part = 0
-        while part < part_count:
-            tasks = [self.loop.create_task(sender.next()) for sender in self.senders]
-            for task in tasks:
-                data = await task
-                if not data:
-                    break
-                yield data
-                part += 1
-        await self._cleanup()
+        try:
+            part = 0
+            while part < part_count:
+                tasks = [
+                    self.loop.create_task(sender.next()) for sender in self.senders
+                ]
+                for task in tasks:
+                    data = await task
+                    if not data:
+                        break
+                    yield data
+                    part += 1
+        finally:
+            log.debug("Download finished or interrupted, cleaning up senders")
+            await self._cleanup()
 
 
 parallel_transfer_locks: DefaultDict[int, asyncio.Lock] = defaultdict(

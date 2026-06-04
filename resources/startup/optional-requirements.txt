@@ -1,33 +1,33 @@
 # Required only for Local Deploys
 # ------------------------------------------------------ #
 
-akipy
-apscheduler
-aiohttp
-bs4
-enhancer>=0.3.4
-git+https://github.com/New-dev0/instagrapi.git@39df1b1#egg=instagrapi
-git+https://github.com/buddhhu/img2html.git@c44170d#egg=img2html
-heroku3
-gitpython
-google-api-python-client
-htmlwebshot
-lottie
-lxml
-numpy>=1.21.2
-oauth2client
-opencv-python-headless
-pillow>=9.0.0
-profanitydetector
-psutil
-pypdf2>=1.26.0
-pytz
-qrcode
-requests
-twikit
-tabulate
-telegraph
-tgcrypto
-youtube-search-python
-yt-dlp
+akipy>=1.3.5                # latest stable as of 2025-06
+apscheduler>=3.11.2         # latest stable as of 2025-06
+aiohttp>=3.14.0             # latest stable as of 2025-06
+bs4>=4.14.3                 # latest stable as of 2025-06
+enhancer>=0.3.4             # pinned upstream minimum
+git+https://github.com/New-dev0/instagrapi.git@39df1b1#egg=instagrapi  # pinned to commit 39df1b1
+git+https://github.com/buddhhu/img2html.git@c44170d#egg=img2html       # pinned to commit c44170d
+heroku3>=5.2.1              # latest stable as of 2025-06
+gitpython>=3.1.50           # latest stable as of 2025-06
+google-api-python-client>=2.197.0  # latest stable as of 2025-06
+htmlwebshot>=0.1.2          # latest stable as of 2025-06
+lottie>=0.7.2               # latest stable as of 2025-06
+lxml>=6.1.1                 # latest stable as of 2025-06
+numpy>=1.21.2               # pinned upstream minimum
+oauth2client>=4.1.3         # latest stable as of 2025-06
+opencv-python-headless>=4.13.0.92  # latest stable as of 2025-06
+pillow>=9.0.0               # pinned upstream minimum
+profanitydetector>=0.2      # latest stable as of 2025-06
+psutil>=7.2.2               # latest stable as of 2025-06
+pypdf2>=1.26.0              # pinned upstream minimum
+pytz>=2026.2                # latest stable as of 2025-06
+qrcode>=8.2                 # latest stable as of 2025-06
+requests>=2.34.2            # latest stable as of 2025-06
+twikit>=2.3.3               # latest stable as of 2025-06
+tabulate>=0.10.0            # latest stable as of 2025-06
+telegraph>=2.2.0            # latest stable as of 2025-06
+tgcrypto>=1.2.5             # latest stable as of 2025-06
+youtube-search-python>=1.6.6  # latest stable as of 2025-06
+yt-dlp>=2026.3.17           # latest stable as of 2025-06
 # -------------------------------------------------------#

@@ -7,6 +7,7 @@
 
 import contextlib
 import inspect
+import platform
 import sys
 import time
 from logging import Logger
@@ -18,6 +19,20 @@ from telethon.errors import (
     AccessTokenInvalidError,
     ApiIdInvalidError,
     AuthKeyDuplicatedError,
+)
+from telethon.tl.functions.stories import (
+    SendStoryRequest,
+    GetStoriesByIDRequest,
+    GetPeerStoriesRequest,
+    DeleteStoriesRequest,
+    GetStoriesViewsRequest,
+    ReadStoriesRequest,
+)
+from telethon.tl.functions.messages import SendReactionRequest
+from telethon.tl.types import (
+    InputPrivacyValueAllowAll,
+    ReactionEmoji,
+    ReactionCustomEmoji,
 )
 
 from ..configs import Var
@@ -47,6 +62,8 @@ class UltroidClient(TelegramClient):
         kwargs["api_id"] = api_id or Var.API_ID
         kwargs["api_hash"] = api_hash or Var.API_HASH
         kwargs["base_logger"] = TelethonLogger
+        kwargs.setdefault("system_version", platform.system() + " " + platform.release())
+        kwargs.setdefault("lang_code", "en")
         super().__init__(session, **kwargs)
         self.run_in_loop(self.start_client(bot_token=bot_token))
         self.dc_id = self.session.dc_id
@@ -63,17 +80,19 @@ class UltroidClient(TelegramClient):
         """function to start client"""
         if self._log_at:
             self.logger.info("Trying to login.")
+        _start_success = False
         try:
             await self.start(**kwargs)
+            _start_success = True
         except ApiIdInvalidError:
             self.logger.critical("API ID and API_HASH combination does not match!")
-
             sys.exit()
         except (AuthKeyDuplicatedError, EOFError) as er:
             if self._handle_error:
                 self.logger.critical("String session expired. Create new!")
                 return sys.exit()
             self.logger.critical("String session expired.")
+            return
         except (AccessTokenExpiredError, AccessTokenInvalidError):
             # AccessTokenError can only occur for Bot account
             # And at Early Process, Its saved in DB.
@@ -82,6 +101,14 @@ class UltroidClient(TelegramClient):
                 "Bot token is expired or invalid. Create new from @Botfather and add in BOT_TOKEN env variable!"
             )
             sys.exit()
+        except Exception as e:
+            self.logger.critical(f"Failed to start client: {e}")
+            if self._handle_error:
+                raise
+            return
+        if not _start_success:
+            self.logger.critical("Client start failed unexpectedly.")
+            return
         # Save some stuff for later use...
         self.me = await self.get_me()
         if self.me.bot:
@@ -213,13 +240,103 @@ class UltroidClient(TelegramClient):
                 )
         return raw_file, time.time() - start_time
 
+    async def send_story(
+        self,
+        peer="me",
+        media=None,
+        *,
+        caption=None,
+        entities=None,
+        privacy=None,
+        period=None,
+        pinned=False,
+        noforwards=False,
+    ):
+        """Send a story to your profile or channel."""
+        if media is None:
+            raise ValueError("media is required for send_story")
+        if privacy is None:
+            privacy = [InputPrivacyValueAllowAll()]
+        return await self(
+            SendStoryRequest(
+                peer=peer,
+                media=media,
+                caption=caption,
+                entities=entities,
+                privacy_rules=privacy,
+                period=period,
+                pinned=pinned,
+                noforwards=noforwards,
+            )
+        )
+
+    async def get_peer_stories(self, peer):
+        """Get available stories from a peer."""
+        return await self(GetPeerStoriesRequest(peer=peer))
+
+    async def get_story_by_id(self, peer, story_ids):
+        """Fetch specific stories by their IDs."""
+        if isinstance(story_ids, int):
+            story_ids = [story_ids]
+        return await self(GetStoriesByIDRequest(peer=peer, id=story_ids))
+
+    async def delete_stories(self, peer, story_ids):
+        """Delete one or more own stories."""
+        if isinstance(story_ids, int):
+            story_ids = [story_ids]
+        return await self(DeleteStoriesRequest(peer=peer, id=story_ids))
+
+    async def read_stories(self, peer, max_id):
+        """Mark stories as read up to max_id."""
+        return await self(ReadStoriesRequest(peer=peer, max_id=max_id))
+
+    async def get_stories_views(self, peer, story_ids):
+        """Get views/interactions for specific stories."""
+        if isinstance(story_ids, int):
+            story_ids = [story_ids]
+        return await self(GetStoriesViewsRequest(peer=peer, id=story_ids))
+
+    async def react(self, peer, msg_id, reaction, *, big=False, add_to_recent=True):
+        """React to a message. Accepts emoji strings, Reaction objects, or lists.
+
+        Pass None as reaction to clear. Strings are auto-wrapped as ReactionEmoji.
+        """
+        if reaction is None:
+            reaction = []
+        elif isinstance(reaction, str):
+            reaction = [ReactionEmoji(emoticon=reaction)]
+        elif isinstance(reaction, list):
+            reaction = [
+                ReactionEmoji(emoticon=r) if isinstance(r, str) else r
+                for r in reaction
+            ]
+        return await self(
+            SendReactionRequest(
+                peer=peer,
+                msg_id=msg_id,
+                reaction=reaction,
+                big=big,
+                add_to_recent=add_to_recent,
+            )
+        )
+
+    def clear_cache(self, cache_type=None):
+        """Clear client file transfer cache. Pass specific type or None for all."""
+        if cache_type:
+            self._cache.pop(cache_type, None)
+        else:
+            self._cache.clear()
+
     def run_in_loop(self, function):
         """run inside asyncio loop"""
         return self.loop.run_until_complete(function)
 
     def run(self):
         """run asyncio loop"""
-        self.run_until_disconnected()
+        try:
+            self.run_until_disconnected()
+        finally:
+            self.loop.run_until_complete(self.disconnect())
 
     def add_handler(self, func, *args, **kwargs):
         """Add new event handler, ignoring if exists"""

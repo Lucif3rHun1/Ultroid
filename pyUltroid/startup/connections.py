@@ -38,7 +38,8 @@ def validate_session(session, logger=LOGS, _exit=True):
         if session.startswith(CURRENT_VERSION):
             if len(session.strip()) != 353:
                 logger.exception(get_string("py_c1"))
-                sys.exit()
+                if _exit:
+                    sys.exit()
             return StringSession(session)
 
         # Pyrogram Session

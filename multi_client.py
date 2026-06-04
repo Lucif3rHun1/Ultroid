@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 
-vars = ["API_ID", "API_HASH", "SESSION"]
+vars = ["API_ID", "API_HASH", "SESSION", "REDIS_URI", "REDIS_PASSWORD"]
 
 def _check(z):
     new = []
@@ -14,11 +14,9 @@ def _check(z):
         new.append(ent)
     return True, new
 
-for z in range(5):
-    n = str(z + 1)
-    if z == 0:
-        z = ""
-    fine, out = _check(str(z))
+for z in range(1, 6):
+    n = str(z)
+    fine, out = _check(n)
     if fine:
         subprocess.Popen(
             [sys.executable, "-m", "pyUltroid", out[0], out[1], out[2], out[3], out[4], n],
@@ -36,4 +34,3 @@ except Exception as er:
     print(er)
 finally:
     loop.close()
-

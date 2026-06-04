@@ -31,7 +31,9 @@ from telethon.errors.rpcerrorlist import (
     MessageNotModifiedError,
     UserIsBotError,
 )
-from telethon.events import MessageEdited, NewMessage
+from telethon.events import MessageEdited, NewMessage, Raw
+from telethon.events.common import EventBuilder, EventCommon
+from telethon.tl.types import UpdateMessageReactions
 from telethon.utils import get_display_name
 
 from pyUltroid.exceptions import DependencyMissingError
@@ -64,6 +66,135 @@ def compile_pattern(data, hndlr):
         # No Hndlr Feature
         return re.compile("^" + data)
     return re.compile("\\" + hndlr + data)
+
+
+class MessageReactionEvent(EventBuilder):
+    """Telethon event builder for message reaction updates.
+
+    Captures ``UpdateMessageReactions`` from Telegram and wraps it in a
+    proper Telethon ``EventCommon`` so handlers get familiar ``.chat_id``,
+    ``.peer``, etc. attributes.
+
+    Usage::
+
+        @client.on(MessageReactionEvent)
+        async def on_reaction(event):
+            print(event.msg_id, event.reactions)
+
+    Parameters:
+        chats: Optional chat IDs to filter.
+        blacklist_chats: If *True*, ``chats`` acts as a blacklist.
+    """
+
+    def __init__(self, chats=None, *, blacklist_chats=False, func=None):
+        super().__init__(chats, blacklist_chats=blacklist_chats, func=func)
+
+    @classmethod
+    def build(cls, update, others=None, self_id=None):
+        if isinstance(update, UpdateMessageReactions):
+            ev = cls.Event(update)
+            return ev
+
+    class Event(EventCommon):
+        """Represents a single message-reaction update.
+
+        Attributes:
+            msg_id:     ID of the message whose reactions changed.
+            reactions:  The ``MessageReactions`` object (list of ``ReactionCount``).
+            top_msg_id: Thread / topic top-message ID (``None`` in private chats).
+        """
+
+        def __init__(self, reaction_update: UpdateMessageReactions):
+            super().__init__(
+                chat_peer=reaction_update.peer,
+                msg_id=reaction_update.msg_id,
+                broadcast=False,
+            )
+            self.msg_id = reaction_update.msg_id
+            self.reactions = reaction_update.reactions
+            self.top_msg_id = getattr(reaction_update, "top_msg_id", None)
+
+        @property
+        def reacted_emojis(self):
+            if not self.reactions or not hasattr(self.reactions, "results"):
+                return []
+            return [
+                r.reaction.emoticon
+                for r in self.reactions.results
+                if hasattr(r.reaction, "emoticon")
+            ]
+
+        @property
+        def reaction_count(self):
+            if not self.reactions or not hasattr(self.reactions, "results"):
+                return 0
+            return sum(r.count for r in self.reactions.results)
+
+
+def ultroid_reaction(
+    chats=None,
+    blacklist_chats=False,
+    func=None,
+    **kwargs,
+):
+    """Decorator to register a handler for message-reaction events.
+
+    Works like ``ultroid_cmd`` but listens for ``UpdateMessageReactions``
+    instead of new messages.  The handler receives a ``MessageReactionEvent.Event``
+    with ``.msg_id``, ``.reactions``, ``.reacted_emojis``, ``.reaction_count``,
+    and standard Telethon ``EventCommon`` attributes (``.chat_id``, ``.sender_id``, …).
+
+    Usage::
+
+        @ultroid_reaction()
+        async def on_reaction(event):
+            print(f"Message {event.msg_id} got reactions: {event.reacted_emojis}")
+
+    Parameters:
+        chats:          Restrict to these chat IDs (optional).
+        blacklist_chats: Treat ``chats`` as a blacklist instead.
+        func:           Additional filter function ``(event) -> bool``.
+        **kwargs:       Reserved for future use (keeps API consistent with ``ultroid_cmd``).
+    """
+
+    def decor(dec):
+        async def wrapp(ult):
+            try:
+                await dec(ult)
+            except events.StopPropagation:
+                raise events.StopPropagation
+            except KeyboardInterrupt:
+                pass
+            except Exception as e:
+                LOGS.exception(e)
+                log_channel = udB.get_key("LOG_CHANNEL")
+                if log_channel:
+                    try:
+                        await asst.send_message(
+                            log_channel,
+                            f"**Reaction Handler Error:**\n```{format_exc()}```",
+                        )
+                    except Exception as _log_err:
+                        LOGS.warning(f"Failed to send reaction error log: {_log_err}")
+
+        ultroid_bot.add_event_handler(
+            wrapp,
+            MessageReactionEvent(
+                chats=list(chats) if chats else None,
+                blacklist_chats=blacklist_chats,
+                func=func,
+            ),
+        )
+
+        file = Path(inspect.stack()[1].filename)
+        if "addons/" in str(file):
+            if LOADED.get(file.stem):
+                LOADED[file.stem].append(wrapp)
+            else:
+                LOADED.update({file.stem: [wrapp]})
+        return wrapp
+
+    return decor
 
 
 def ultroid_cmd(
@@ -130,9 +261,41 @@ def ultroid_cmd(
                     udB.get_key("LOG_CHANNEL"),
                     f"`FloodWaitError:\n{str(fwerr)}\n\nSleeping for {tf((fwerr.seconds + 10)*1000)}`",
                 )
-                await ultroid_bot.disconnect()
+                try:
+                    await ultroid_bot.disconnect()
+                    LOGS.info("Disconnected ultroid_bot due to FloodWait.")
+                except Exception as _derr:
+                    LOGS.warning(f"Failed to disconnect ultroid_bot: {_derr}")
+                if asst and asst is not ultroid_bot:
+                    try:
+                        await asst.disconnect()
+                        LOGS.info("Disconnected asst due to FloodWait.")
+                    except Exception as _derr:
+                        LOGS.warning(f"Failed to disconnect asst: {_derr}")
+                if vcClient and vcClient is not ultroid_bot and vcClient is not asst:
+                    try:
+                        await vcClient.disconnect()
+                        LOGS.info("Disconnected vcClient due to FloodWait.")
+                    except Exception as _derr:
+                        LOGS.warning(f"Failed to disconnect vcClient: {_derr}")
                 await asyncio.sleep(fwerr.seconds + 10)
-                await ultroid_bot.connect()
+                try:
+                    await ultroid_bot.connect()
+                    LOGS.info("Reconnected ultroid_bot after FloodWait.")
+                except Exception as _rerr:
+                    LOGS.warning(f"Failed to reconnect ultroid_bot: {_rerr}")
+                if asst and asst is not ultroid_bot:
+                    try:
+                        await asst.connect()
+                        LOGS.info("Reconnected asst after FloodWait.")
+                    except Exception as _rerr:
+                        LOGS.warning(f"Failed to reconnect asst: {_rerr}")
+                if vcClient and vcClient is not ultroid_bot and vcClient is not asst:
+                    try:
+                        await vcClient.connect()
+                        LOGS.info("Reconnected vcClient after FloodWait.")
+                    except Exception as _rerr:
+                        LOGS.warning(f"Failed to reconnect vcClient: {_rerr}")
                 await asst.send_message(
                     udB.get_key("LOG_CHANNEL"),
                     "`Bot is working again`",
@@ -170,6 +333,8 @@ def ultroid_cmd(
                         ),
                     ],
                 )
+                udB.del_key("SESSION")
+                await ult.disconnect()
                 sys.exit()
             except events.StopPropagation:
                 raise events.StopPropagation

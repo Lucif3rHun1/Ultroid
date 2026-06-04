@@ -8,6 +8,7 @@
 import os
 import sys
 import telethonpatch
+from telethon.sessions import StringSession
 from .version import __version__
 
 run_as_module = __package__ in sys.argv or sys.argv[0] == "-m"
@@ -77,7 +78,7 @@ if run_as_module:
     if USER_MODE:
         asst = ultroid_bot
     else:
-        asst = UltroidClient("asst", bot_token=udB.get_key("BOT_TOKEN"), udB=udB)
+        asst = UltroidClient(StringSession(), bot_token=udB.get_key("BOT_TOKEN"), udB=udB)
 
     if BOT_MODE:
         ultroid_bot = asst
@@ -94,6 +95,24 @@ if run_as_module:
     vcClient = vc_connection(udB, ultroid_bot)
 
     _version_changes(udB)
+
+    # Register graceful disconnect on process exit
+    import atexit
+
+    def _atexit_disconnect():
+        """Disconnect all Telegram clients on unexpected process exit."""
+        for name, client in (
+            ("vcClient", vcClient),
+            ("ultroid_bot", ultroid_bot),
+            ("asst", asst),
+        ):
+            if client is not None:
+                try:
+                    client.loop.run_until_complete(client.disconnect())
+                except Exception:
+                    pass
+
+    atexit.register(_atexit_disconnect)
 
     HNDLR = udB.get_key("HNDLR") or "."
     DUAL_HNDLR = udB.get_key("DUAL_HNDLR") or "/"

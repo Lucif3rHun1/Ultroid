@@ -325,7 +325,7 @@ def UltroidDB():
     from .. import HOSTED_ON
 
     try:
-        if Redis:
+        if Redis and (Var.REDIS_URI or Var.REDISHOST):
             return RedisDB(
                 host=Var.REDIS_URI or Var.REDISHOST,
                 password=Var.REDIS_PASSWORD or Var.REDISPASSWORD,

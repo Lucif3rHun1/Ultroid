@@ -187,11 +187,10 @@ def ultroid_reaction(
         )
 
         file = Path(inspect.stack()[1].filename)
-        if "addons/" in str(file):
-            if LOADED.get(file.stem):
-                LOADED[file.stem].append(wrapp)
-            else:
-                LOADED.update({file.stem: [wrapp]})
+        if LOADED.get(file.stem):
+            LOADED[file.stem].append(wrapp)
+        else:
+            LOADED.update({file.stem: [wrapp]})
         return wrapp
 
     return decor
@@ -490,11 +489,10 @@ def ultroid_cmd(
                 ),
             )
         file = Path(inspect.stack()[1].filename)
-        if "addons/" in str(file):
-            if LOADED.get(file.stem):
-                LOADED[file.stem].append(wrapp)
-            else:
-                LOADED.update({file.stem: [wrapp]})
+        if LOADED.get(file.stem):
+            LOADED[file.stem].append(wrapp)
+        else:
+            LOADED.update({file.stem: [wrapp]})
         if pattern:
             if LIST.get(file.stem):
                 LIST[file.stem].append(pattern)

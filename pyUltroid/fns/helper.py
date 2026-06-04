@@ -57,7 +57,7 @@ from ..exceptions import DependencyMissingError
 from . import *
 
 if run_as_module:
-    from ..dB._core import ADDONS, HELP, LIST, LOADED
+    from ..dB._core import ADDONS, HELP, LIST, LOADED, PLUGINS
 
 from ..version import ultroid_version
 from .FastTelethon import download_file as downloadable
@@ -111,8 +111,9 @@ def un_plug(shortname):
                     client.remove_event_handler(x)
         del LOADED[shortname]
         del LIST[shortname]
-        ADDONS.remove(shortname)
-    except (ValueError, KeyError):
+        if shortname in ADDONS:
+            ADDONS.remove(shortname)
+    except KeyError:
         name = f"addons.{shortname}"
         for client in [ultroid_bot, asst]:
             for i in reversed(range(len(client._event_builders))):
@@ -122,9 +123,47 @@ def un_plug(shortname):
                     try:
                         del LOADED[shortname]
                         del LIST[shortname]
-                        ADDONS.remove(shortname)
+                        if shortname in ADDONS:
+                            ADDONS.remove(shortname)
                     except KeyError:
                         pass
+
+
+def get_plugin_handlers(plugin_name):
+    """Return list of handlers registered for a plugin."""
+    return LOADED.get(plugin_name, [])
+
+
+def remove_plugin_handlers(plugin_name):
+    """Remove all handlers for a plugin from all clients.
+
+    Parameters:
+        plugin_name: The stem name of the plugin (e.g. "alive", "greetings").
+
+    Returns:
+        True if handlers were found and removed, False otherwise.
+    """
+    from .. import asst, ultroid_bot, vcClient
+
+    handlers = LOADED.get(plugin_name, [])
+    if not handlers:
+        return False
+
+    for client in [ultroid_bot, asst, vcClient]:
+        if client is None:
+            continue
+        for x, _ in client.list_event_handlers():
+            if x in handlers:
+                client.remove_event_handler(x)
+
+    LOADED.pop(plugin_name, None)
+    LIST.pop(plugin_name, None)
+    if plugin_name in ADDONS:
+        ADDONS.remove(plugin_name)
+    if plugin_name in PLUGINS:
+        PLUGINS.remove(plugin_name)
+
+    return True
 
 
 if run_as_module:

@@ -16,4 +16,56 @@ echo "
 
 "
 if [ -f .env ] ; then  set -o allexport; source .env; set +o allexport ; fi
-if [ $SESSION1 ] ; then python3 multi_client.py ; else python3 -m pyUltroid ; fi
+
+validate_session() {
+  [ -n "$SESSION" ] && [ ${#SESSION} -eq 353 ]
+}
+
+prompt_session() {
+  while true; do
+    echo "SESSION missing or invalid. Choose an option:"
+    echo "  [G] Generate"
+    echo "  [P] Paste"
+    echo "  [B] Start BOTMODE"
+    echo "  [Q] Quit"
+    printf "Enter choice: "
+    read -r choice
+    case "$choice" in
+      G|g)
+        python3 resources/session/ssgen.py
+        exit 0
+        ;;
+      P|p)
+        printf "Paste SESSION (353 chars): "
+        read -r SESSION
+        if [ ${#SESSION} -eq 353 ]; then
+          export SESSION
+          return 0
+        fi
+        echo "Invalid SESSION length. Expected 353 characters."
+        ;;
+      B|b)
+        if [ -n "$BOT_TOKEN" ]; then
+          export BOTMODE=true
+          return 0
+        fi
+        echo "BOT_TOKEN missing. Cannot start BOTMODE."
+        ;;
+      Q|q)
+        exit 0
+        ;;
+      *)
+        echo "Invalid choice."
+        ;;
+    esac
+  done
+}
+
+if [ -n "$SESSION1" ] ; then
+  python3 multi_client.py
+else
+  if ! validate_session; then
+    prompt_session
+  fi
+  python3 -m pyUltroid
+fi

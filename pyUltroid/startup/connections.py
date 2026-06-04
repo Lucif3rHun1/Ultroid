@@ -9,6 +9,7 @@ import base64
 import ipaddress
 import struct
 import sys
+from typing import Any
 
 from telethon.errors.rpcerrorlist import AuthKeyDuplicatedError
 from telethon.sessions.string import _STRUCT_PREFORMAT, CURRENT_VERSION, StringSession
@@ -33,13 +34,17 @@ DC_IPV4 = {
 def validate_session(session, logger=LOGS, _exit=True):
     from strings import get_string
 
+    def _fail(msg_key):
+        logger.exception(get_string(msg_key))
+        if _exit:
+            sys.exit()
+        return None
+
     if session:
         # Telethon Session
         if session.startswith(CURRENT_VERSION):
             if len(session.strip()) != 353:
-                logger.exception(get_string("py_c1"))
-                if _exit:
-                    sys.exit()
+                return _fail("py_c1")
             return StringSession(session)
 
         # Pyrogram Session
@@ -66,23 +71,21 @@ def validate_session(session, logger=LOGS, _exit=True):
                 ).decode("ascii")
             )
         else:
-            logger.exception(get_string("py_c1"))
-            if _exit:
-                sys.exit()
-    logger.exception(get_string("py_c2"))
-    if _exit:
-        sys.exit()
+            return _fail("py_c1")
+    return _fail("py_c2")
 
 
 def vc_connection(udB, ultroid_bot):
     from strings import get_string
 
-    VC_SESSION = Var.VC_SESSION or udB.get_key("VC_SESSION")
-    if VC_SESSION and VC_SESSION != Var.SESSION:
+    var_cfg: Any = Var
+    var_session = getattr(var_cfg, "SESSION", None)
+    vc_session = getattr(var_cfg, "VC_SESSION", None) or udB.get_key("VC_SESSION")
+    if vc_session and vc_session != var_session:
         LOGS.info("Starting up VcClient.")
         try:
             return UltroidClient(
-                validate_session(VC_SESSION, _exit=False),
+                validate_session(vc_session, _exit=False),
                 log_attempt=False,
                 exit_on_error=False,
             )

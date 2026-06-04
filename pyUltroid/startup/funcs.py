@@ -50,6 +50,30 @@ from ..fns.helper import download_file, inline_mention, updater
 db_url = 0
 REDIS_KEEPALIVE_KEY = "KEEP_ACTIVE"
 REDIS_KEEPALIVE_INTERVAL_SECONDS = 7 * 24 * 60 * 60
+STARTUP_STATE_KEY = "STARTUP_STATE"
+
+
+def set_startup_state(state):
+    from .. import udB
+
+    if state not in {"first_run", "clean_quit", "crash", "running"}:
+        raise ValueError(f"Invalid startup state: {state}")
+    if udB is None:
+        return state
+    udB.set_key(STARTUP_STATE_KEY, state)
+    return state
+
+
+def get_startup_state():
+    from .. import udB
+
+    if udB is None:
+        return "first_run"
+    state = udB.get_key(STARTUP_STATE_KEY)
+    if state not in {"first_run", "clean_quit", "crash", "running"}:
+        state = "first_run"
+        udB.set_key(STARTUP_STATE_KEY, state)
+    return state
 
 
 async def autoupdate_local_database():

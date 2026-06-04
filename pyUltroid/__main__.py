@@ -6,6 +6,7 @@
 # <https://github.com/TeamUltroid/pyUltroid/blob/main/LICENSE>.
 
 from . import *
+import contextlib
 
 
 def main():
@@ -66,7 +67,12 @@ def main():
         _plugins = "autocorrect autopic audiotools compressor forcesubscribe fedutils gdrive glitch instagram nsfwfilter nightmode pdftools profanityfilter writer youtube"
         udB.set_key("EXCLUDE_OFFICIAL", _plugins)
 
+    _plugins_started = time.time()
     load_other_plugins(addons=addons, pmbot=pmbot, manager=manager, vcbot=vcbot)
+    _plugins_ms = int((time.time() - _plugins_started) * 1000)
+    LOGS.info(f"Loaded plugins in {_plugins_ms}ms")
+    with contextlib.suppress(Exception):
+        udB.set_key("STARTUP_LOAD_METRICS", {"plugins_ms": _plugins_ms})
 
     suc_msg = """
             ----------------------------------------------------------------------
@@ -99,6 +105,11 @@ def main():
     LOGS.info(
         f"Took {time_formatter((time.time() - start_time)*1000)} to start •ULTROID•"
     )
+    with contextlib.suppress(Exception):
+        udB.set_key(
+            "STARTUP_TIME_MS",
+            int((time.time() - start_time) * 1000),
+        )
     LOGS.info(suc_msg)
 
 

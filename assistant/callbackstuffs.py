@@ -27,6 +27,7 @@ from telethon.utils import get_peer_id
 
 from pyUltroid.fns.helper import fast_download, progress
 from pyUltroid.fns.tools import Carbon, async_searcher, get_paste, telegraph_client
+from pyUltroid.startup.config import PLUGIN_CATEGORIES, get_plugin_config, set_plugin_config
 from pyUltroid.startup.loader import Loader
 
 from . import *
@@ -36,6 +37,70 @@ telegraph = telegraph_client()
 GDrive = GDriveManager() if GDriveManager else None
 uploader = CatboxUploader()
 # --------------------------------------------------------------------#
+
+
+def _plugin_state():
+    config = get_plugin_config() or {}
+    return {key: list(value) for key, value in config.items()}
+
+
+def _plugin_totals():
+    config = _plugin_state()
+    total = sum(len(plugins) for plugins in PLUGIN_CATEGORIES.values())
+    selected = sum(
+        1
+        for category, plugins in PLUGIN_CATEGORIES.items()
+        for plugin in plugins
+        if plugin in config.get(category, [])
+    )
+    return selected, total
+
+
+def _plugin_menu_buttons():
+    config = _plugin_state()
+    selected, total = _plugin_totals()
+    buttons = [[Button.inline(f"Selected: {selected}/{total} plugins", data="plgsel")]]
+    row = []
+    for category, plugins in PLUGIN_CATEGORIES.items():
+        enabled = len([p for p in plugins if p in config.get(category, [])])
+        row.append(Button.inline(f"{category.title()} ({enabled}/{len(plugins)})", data=f"plgcat:{category}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([Button.inline("« Back", data="cbs_otvars")])
+    return buttons
+
+
+def _category_buttons(category: str):
+    config = _plugin_state()
+    enabled = set(config.get(category, []))
+    plugins = PLUGIN_CATEGORIES.get(category, [])
+    selected, total = _plugin_totals()
+    buttons = [[Button.inline(f"Selected: {selected}/{total} plugins", data="plgsel")]]
+    row = []
+    for plugin in plugins:
+        mark = "✅" if plugin in enabled else "▫️"
+        row.append(Button.inline(f"{mark} {plugin}", data=f"plgtog:{category}:{plugin}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([Button.inline("« Back", data="plgsel")])
+    return buttons
+
+
+async def _render_plugin_menu(event, category: str | None = None):
+    if category:
+        text = f"**{category.title()} plugins**\nToggle plugins on/off with the buttons below."
+        buttons = _category_buttons(category)
+    else:
+        selected, total = _plugin_totals()
+        text = f"**Plugin selection**\nSelected: {selected}/{total} plugins\nChoose a category to manage."
+        buttons = _plugin_menu_buttons()
+    await event.edit(text, buttons=buttons)
 
 def text_to_url(event):
     """function to get media url (with|without) Webpage"""
@@ -583,6 +648,18 @@ async def emoji(event):
 
 @callback("plg", owner=True)
 async def pluginch(event):
+    await event.edit(
+        "**Extra Plugins**\nChoose what you want to configure.",
+        buttons=[
+            [Button.inline("Set Plugin Channel", data="plgch")],
+            [Button.inline("Select Plugins", data="plgsel")],
+            [Button.inline("« Back", data="cbs_otvars")],
+        ],
+    )
+
+
+@callback("plgch", owner=True)
+async def plugin_channel(event):
     await event.delete()
     pru = event.sender_id
     var = "PLUGIN_CHANNEL"
@@ -610,6 +687,40 @@ async def pluginch(event):
                 f"{name} changed to {themssg}\n After Setting All Things Do Restart",
                 buttons=get_back_button("cbs_otvars"),
             )
+
+
+@callback("plgsel", owner=True)
+async def plugin_select_menu(event):
+    await _render_plugin_menu(event)
+
+
+@callback(re.compile(r"plgcat:(.*)"), owner=True)
+async def plugin_select_category(event):
+    category = event.data_match.group(1).decode("utf-8")
+    if category not in PLUGIN_CATEGORIES:
+        return await event.answer("Unknown category", alert=True)
+    await _render_plugin_menu(event, category)
+
+
+@callback(re.compile(r"plgtog:(.*):(.*)"), owner=True)
+async def plugin_toggle(event):
+    category, plugin = event.data_match.groups()
+    category = category.decode("utf-8")
+    plugin = plugin.decode("utf-8")
+    if category not in PLUGIN_CATEGORIES or plugin not in PLUGIN_CATEGORIES[category]:
+        return await event.answer("Unknown plugin", alert=True)
+    config = _plugin_state()
+    current = set(config.get(category, []))
+    if plugin in current:
+        current.remove(plugin)
+        msg = f"Disabled {plugin}"
+    else:
+        current.add(plugin)
+        msg = f"Enabled {plugin}"
+    config[category] = sorted(current)
+    set_plugin_config(config)
+    await event.answer(msg, alert=False)
+    await _render_plugin_menu(event, category)
 
 
 @callback("hhndlr", owner=True)

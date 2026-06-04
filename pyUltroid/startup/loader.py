@@ -9,14 +9,16 @@ import os
 import subprocess
 import sys
 from shutil import rmtree
+from typing import Any, cast
 
 from decouple import config
 from git import Repo
 
 from .. import *
+from ..configs import Var
 from ..dB._core import HELP
+from ..startup.config import ESSENTIAL_PLUGINS
 from ..loader import Loader
-from . import *
 from .utils import load_addons
 
 
@@ -45,16 +47,53 @@ def _after_load(loader, module, plugin_name=""):
                 loader._logger.exception(em)
 
 
+def load_essential_plugins():
+    LOGS.info("Loading essential plugins only (first startup)")
+    essential_plugins = [
+        plugin
+        for plugins in ESSENTIAL_PLUGINS.values()
+        for plugin in plugins
+    ]
+    Loader().load(include=essential_plugins, after_load=_after_load)
+
+
+def _split_plugins(value):
+    return value.split() if isinstance(value, str) else []
+
+
 def load_other_plugins(addons=None, pmbot=None, manager=None, vcbot=None):
+    from .. import udB as _udB
+    from .config import get_plugin_config
 
-    # for official
-    _exclude = udB.get_key("EXCLUDE_OFFICIAL") or config("EXCLUDE_OFFICIAL", None)
-    _exclude = _exclude.split() if _exclude else []
+    udB = cast(Any, _udB)
+    plugin_config = get_plugin_config() or {}
 
-    # "INCLUDE_ONLY" was added to reduce Big List in "EXCLUDE_OFFICIAL" Plugin
-    _in_only = udB.get_key("INCLUDE_ONLY") or config("INCLUDE_ONLY", None)
-    _in_only = _in_only.split() if _in_only else []
-    Loader().load(include=_in_only, exclude=_exclude, after_load=_after_load)
+    addons = plugin_config.get("addons", addons)
+    pmbot = plugin_config.get("pmbot", pmbot)
+    manager = plugin_config.get("manager", manager)
+    vcbot = plugin_config.get("vcbot", vcbot)
+
+    _in_only = []
+    _exclude = []
+
+    _exclude = _split_plugins(
+        udB.get_key("EXCLUDE_OFFICIAL") or config("EXCLUDE_OFFICIAL", None)
+    )
+
+    _in_only = _split_plugins(
+        udB.get_key("INCLUDE_ONLY") or config("INCLUDE_ONLY", None)
+    )
+
+    _category_keys = {"assistant", "addons", "vcbot", "manager", "pmbot"}
+    _official_include = []
+    for key, plugins in plugin_config.items():
+        if key not in _category_keys and isinstance(plugins, list):
+            _official_include.extend(plugins)
+
+    if _in_only:
+        Loader().load(include=_in_only, exclude=_exclude, after_load=_after_load)
+    else:
+        Loader().load(include=_official_include, exclude=_exclude, after_load=_after_load)
 
     # for assistant
     if not USER_MODE and not udB.get_key("DISABLE_AST_PLUGINS"):
@@ -94,10 +133,16 @@ def load_other_plugins(addons=None, pmbot=None, manager=None, vcbot=None):
                 shell=True,
             )
 
-        _exclude = udB.get_key("EXCLUDE_ADDONS")
-        _exclude = _exclude.split() if _exclude else []
-        _in_only = udB.get_key("INCLUDE_ADDONS")
-        _in_only = _in_only.split() if _in_only else []
+        _exclude = _split_plugins(
+            udB.get_key("EXCLUDE_ADDONS") or config("EXCLUDE_ADDONS", None)
+        )
+        _in_only = _split_plugins(
+            udB.get_key("INCLUDE_ADDONS") or config("INCLUDE_ADDONS", None)
+        )
+        if not _in_only:
+            _addon_plugins = plugin_config.get("addons")
+            if isinstance(_addon_plugins, list):
+                _in_only = _addon_plugins
 
         Loader(path="addons", key="Addons").load(
             func=load_addons,
@@ -119,7 +164,7 @@ def load_other_plugins(addons=None, pmbot=None, manager=None, vcbot=None):
     # vc bot
     if vcbot and (vcClient and not vcClient.me.bot):
         try:
-            import pytgcalls  # ignore: pylint
+            import pytgcalls  # type: ignore[import-not-found]  # ignore: pylint
 
             if os.path.exists("vcbot"):
                 if os.path.exists("vcbot/.git"):

@@ -60,6 +60,11 @@ def asst_cmd(pattern=None, load=None, owner=False, **kwargs):
                 LOGS.exception(er)
 
         asst.add_event_handler(handler, NewMessage(**kwargs))
+        from ..dB._core import LOADED
+        if LOADED.get(name):
+            LOADED[name].append(handler)
+        else:
+            LOADED.update({name: [handler]})
         if load is not None:
             append_or_update(load, func, name, kwargs)
 
@@ -86,6 +91,13 @@ def callback(data=None, from_users=[], admins=False, owner=False, **kwargs):
                 LOGS.exception(er)
 
         asst.add_event_handler(wrapper, CallbackQuery(data=data, **kwargs))
+        from pathlib import Path
+        from ..dB._core import LOADED
+        name = Path(inspect.stack()[1].filename).stem
+        if LOADED.get(name):
+            LOADED[name].append(wrapper)
+        else:
+            LOADED.update({name: [wrapper]})
 
     return ultr
 
@@ -146,5 +158,12 @@ def in_pattern(pattern=None, owner=False, **kwargs):
                     await asst.send_message(udB.get_key("LOG_CHANNEL"), error_text())
 
         asst.add_event_handler(wrapper, InlineQuery(pattern=pattern, **kwargs))
+        from pathlib import Path
+        from ..dB._core import LOADED
+        name = Path(inspect.stack()[1].filename).stem
+        if LOADED.get(name):
+            LOADED[name].append(wrapper)
+        else:
+            LOADED.update({name: [wrapper]})
 
     return don

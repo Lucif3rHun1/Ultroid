@@ -8,10 +8,11 @@
 import contextlib
 import glob
 import os
+import time
 from importlib import import_module
 from logging import Logger
 
-from . import LOGS
+from . import LOGS, udB
 from .fns.tools import get_all_files
 
 
@@ -55,7 +56,10 @@ class Loader:
             self._logger.info(
                 f"• Installing {self.key} Plugins || Count : {len(files)} •"
             )
+        metrics = []
         for plugin in sorted(files):
+            started = time.perf_counter()
+            display_name = plugin.split("/")[-1].split("\\")[-1].removesuffix(".py")
             if func == import_module:
                 plugin = plugin.replace(".py", "").replace("/", ".").replace("\\", ".")
             try:
@@ -71,7 +75,20 @@ class Loader:
                 continue
             if _single and log:
                 self._logger.info(f"Successfully Loaded {plugin}!")
+            load_ms = int((time.perf_counter() - started) * 1000)
+            if log:
+                self._logger.info(f"Loaded {display_name} in {load_ms}ms")
+            metrics.append({"plugin": display_name, "ms": load_ms, "path": self.path, "key": self.key})
             if callable(after_load):
                 if func == import_module:
                     plugin = plugin.split(".")[-1]
                 after_load(self, modl, plugin_name=plugin)
+        if metrics:
+            with contextlib.suppress(Exception):
+                db = udB
+                if db is not None:
+                    current = db.get_key("PLUGIN_LOAD_METRICS") or []
+                    if not isinstance(current, list):
+                        current = []
+                    current.extend(metrics)
+                    db.set_key("PLUGIN_LOAD_METRICS", current)

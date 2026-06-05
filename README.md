@@ -51,9 +51,33 @@ Get the [Necessary Variables](#Necessary-Variables) and then click the button be
 [![Develop on Okteto](https://okteto.com/develop-okteto.svg)](https://cloud.okteto.com/deploy?repository=https://github.com/TeamUltroid/Ultroid)
 
 ## Deploy Locally
+- **[🚀 Interactive Launcher (Recommended)](#interactive-launcher)** — Just run `bash startup`
 - [Traditional Method](#local-deploy---traditional-method)
 - [Easy Method](#local-deploy---easy-method)
 - [Ultroid CLI](#ultroid-cli)
+
+### 🚀 Interactive Launcher (Recommended)
+- The easiest way to deploy locally — just run `bash startup`.
+- It handles Python checks, virtualenv setup, dependencies, environment setup, and session generation automatically.
+- Interactive menu options include: setup env, download from URL, start background/foreground, status, and logs.
+
+Quick start:
+```bash
+git clone https://github.com/TeamUltroid/Ultroid.git
+cd Ultroid
+bash startup
+```
+
+Quick flags for automation:
+- `bash startup --status`
+- `bash startup --stop`
+- `bash startup --logs`
+- `bash startup --env-url=<url>`
+
+Usage walkthrough:
+1. Choose option 5 for env setup.
+2. Choose option 7 for session generation.
+3. Choose option 2 to start.
 
 ### Local Deploy - Easy Method
 - Linux - `wget -O locals.py https://git.io/JY9UM && python3 locals.py`
@@ -73,7 +97,7 @@ Get the [Necessary Variables](#Necessary-Variables) and then click the button be
 `pip(3) install -U -r re*/st*/optional-requirements.txt`
 `pip(3) install -U -r requirements.txt`
 - Generate your `SESSION`:
-  - For Linux users:
+  - For Linux/macOS:
     `bash sessiongen`
      or
     `wget -O session.py https://git.io/JY9JI && python3 session.py`

@@ -1,71 +1,386 @@
 #!/usr/bin/env bash
-# Ultroid - UserBot
-# Copyright (C) 2021-2026 TeamUltroid
-#
-# This file is a part of < https://github.com/TeamUltroid/Ultroid/ >
-# PLease read the GNU Affero General Public License in <https://www.github.com/TeamUltroid/Ultroid/blob/main/LICENSE/>.
 
+set -u
 
-echo "
-            ┏┳┓╋┏┓╋╋╋╋┏┓┏┓
-            ┃┃┣┓┃┗┳┳┳━╋╋┛┃
-            ┃┃┃┗┫┏┫┏┫╋┃┃╋┃
-            ┗━┻━┻━┻┛┗━┻┻━┛
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR" || exit 1
 
-      Visit @TheUltroid for updates!!
+ENV_FILE=".env"
+PID_FILE=".ultroid.pid"
+LOG_FILE=".ultroid.log"
+VENV_DIR="venv"
+OPTIONAL_REQ="resources/startup/optional-requirements.txt"
+REQ_FILE="requirements.txt"
 
-"
-if [ -f .env ] ; then  set -o allexport; source .env; set +o allexport ; fi
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+RESET='\033[0m'
+BOLD='\033[1m'
 
-validate_session() {
-  [ -n "$SESSION" ] && [ ${#SESSION} -eq 353 ]
+say() { printf "%b\n" "$*"; }
+info() { say "${BLUE}•${RESET} $*"; }
+ok() { say "${GREEN}✔${RESET} $*"; }
+warn() { say "${YELLOW}⚠${RESET} $*"; }
+err() { say "${RED}✖${RESET} $*"; }
+
+pause() { printf "\nPress Enter to continue..."; read -r _; }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+load_env() {
+  if [ -f "$ENV_FILE" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+    set +a
+  fi
 }
 
-prompt_session() {
+write_env_file() {
+  : > "$ENV_FILE"
+  while IFS= read -r line; do
+    [ -n "$line" ] && printf '%s\n' "$line" >> "$ENV_FILE"
+  done
+}
+
+is_int() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+is_yes() { case "${1:-}" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac; }
+
+bot_running() {
+  if [ -f "$PID_FILE" ]; then
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [ -n "${pid:-}" ] && kill -0 "$pid" >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+env_ready() {
+  load_env
+  [ -n "${API_ID:-}" ] && [ -n "${API_HASH:-}" ] && { [ -n "${SESSION:-}" ] || [ -n "${BOT_TOKEN:-}" ]; } && \
+    { [ -n "${REDIS_URI:-}" ] || [ -n "${MONGO_URI:-}" ] || [ -n "${DATABASE_URL:-}" ]; }
+}
+
+status_text() {
+  if bot_running; then printf "${GREEN}🟢 Running${RESET}"; else printf "${RED}🔴 Stopped${RESET}"; fi
+}
+
+env_text() {
+  if env_ready; then printf "${GREEN}✅ Ready${RESET}"; else
+    load_env
+    if [ -n "${API_ID:-}" ] || [ -n "${API_HASH:-}" ] || [ -n "${SESSION:-}" ] || [ -n "${BOT_TOKEN:-}" ]; then
+      printf "${YELLOW}⚠️ Incomplete${RESET}"
+    else
+      printf "${RED}❌ Not configured${RESET}"
+    fi
+  fi
+}
+
+ensure_venv() {
+  if [ -n "${VIRTUAL_ENV:-}" ]; then
+    return 0
+  fi
+  if [ ! -x "$VENV_DIR/bin/python" ]; then
+    info "Creating virtual environment..."
+    python3 -m venv "$VENV_DIR" || { err "Failed to create venv."; return 1; }
+  fi
+  # shellcheck disable=SC1091
+  . "$VENV_DIR/bin/activate"
+  export PATH="$ROOT_DIR/$VENV_DIR/bin:$PATH"
+  ok "Virtual environment active."
+}
+
+check_python() {
+  if ! have python3; then err "python3 not found."; return 1; fi
+  pyver="$(python3 - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+)"
+  major="${pyver%%.*}"; minor="${pyver#*.}"
+  if [ "$major" -lt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -lt 10 ]; }; then
+    err "Python 3.10+ required. Found $pyver"
+    return 1
+  fi
+  ok "Python $pyver"
+}
+
+install_pkg() {
+  pkg="$1"
+  if have brew; then sudo_cmd=""; [ "$(id -u)" -ne 0 ] && sudo_cmd="sudo"; $sudo_cmd brew install "$pkg"
+  elif have apt-get; then sudo_cmd=""; [ "$(id -u)" -ne 0 ] && sudo_cmd="sudo"; $sudo_cmd apt-get update && $sudo_cmd apt-get install -y "$pkg"
+  elif have dnf; then sudo_cmd=""; [ "$(id -u)" -ne 0 ] && sudo_cmd="sudo"; $sudo_cmd dnf install -y "$pkg"
+  elif have pacman; then sudo_cmd=""; [ "$(id -u)" -ne 0 ] && sudo_cmd="sudo"; $sudo_cmd pacman -Sy --noconfirm "$pkg"
+  else
+    warn "No supported package manager found. Install $pkg manually."
+    return 1
+  fi
+}
+
+check_system_deps() {
+  missing=()
+  for cmd in git ffmpeg mediainfo; do have "$cmd" || missing+=("$cmd"); done
+  if [ "${#missing[@]:-0}" -eq 0 ]; then ok "System tools present."; return 0; fi
+  warn "Missing: ${missing[*]}"
+  printf "Install missing tools automatically? [y/N]: "
+  read -r ans
+  is_yes "$ans" || return 0
+  for cmd in "${missing[@]}"; do
+    info "Installing $cmd..."
+    install_pkg "$cmd" || warn "Could not install $cmd."
+  done
+}
+
+install_python_deps() {
+  ensure_venv || return 1
+  check_python || return 1
+  [ -f "$REQ_FILE" ] || { err "$REQ_FILE missing."; return 1; }
+  info "Upgrading pip..."
+  python3 -m pip install -U pip setuptools wheel >/dev/null 2>&1 || true
+  info "Installing required packages..."
+  python3 -m pip install -r "$REQ_FILE"
+  if [ -f "$OPTIONAL_REQ" ]; then
+    info "Installing optional packages..."
+    python3 -m pip install -r "$OPTIONAL_REQ" || warn "Optional requirements had issues; continuing."
+  fi
+  ok "Dependencies installed."
+}
+
+start_bot_fg() {
+  ensure_venv || return 1
+  check_python || return 1
+  load_env
+  if ! env_ready; then warn "Environment incomplete. Use menu 5/6/7 first."; return 1; fi
+  python3 -m pyUltroid
+}
+
+start_bot_bg() {
+  ensure_venv || return 1
+  check_python || return 1
+  load_env
+  if ! env_ready; then warn "Environment incomplete. Use menu 5/6/7 first."; return 1; fi
+  if bot_running; then warn "Bot already running (PID $(cat "$PID_FILE"))."; return 0; fi
+  info "Starting bot in background..."
+  nohup python3 -m pyUltroid >>"$LOG_FILE" 2>&1 &
+  pid="$!"
+  echo "$pid" > "$PID_FILE"
+  sleep 1
+  if kill -0 "$pid" >/dev/null 2>&1; then ok "Started with PID $pid"; else err "Bot exited immediately. Check logs."; rm -f "$PID_FILE"; return 1; fi
+}
+
+show_status() {
+  say "${BOLD}┌─────────────────────────────────────┐${RESET}"
+  say "${BOLD}│  🚀 Ultroid Launcher                │${RESET}"
+  say "${BOLD}├─────────────────────────────────────┤${RESET}"
+  say "  Status: $(status_text)"
+  say "  Env:    $(env_text)"
+  if bot_running; then
+    pid="$(cat "$PID_FILE" 2>/dev/null)"
+    uptime="$(ps -p "$pid" -o etime= 2>/dev/null | tr -d ' ' || true)"
+    mem="$(ps -p "$pid" -o rss= 2>/dev/null | tr -d ' ' || true)"
+    say "  PID:    ${pid:-unknown}"
+    say "  Uptime: ${uptime:-unknown}"
+    say "  Memory: ${mem:-unknown} KB"
+  fi
+  say "${BOLD}└─────────────────────────────────────┘${RESET}"
+  if [ -f "$LOG_FILE" ]; then
+    say ""
+    tail -n 20 "$LOG_FILE"
+  fi
+}
+
+stop_bot() {
+  if ! bot_running; then warn "Bot is not running."; rm -f "$PID_FILE"; return 0; fi
+  pid="$(cat "$PID_FILE")"
+  info "Stopping PID $pid..."
+  kill "$pid" >/dev/null 2>&1 || true
+  for _ in 1 2 3 4 5; do
+    bot_running || break
+    sleep 1
+  done
+  if bot_running; then warn "Graceful stop failed; force killing."; kill -9 "$pid" >/dev/null 2>&1 || true; sleep 1; fi
+  rm -f "$PID_FILE"
+  ok "Stopped."
+}
+
+show_logs() {
+  [ -f "$LOG_FILE" ] || { warn "No log file yet."; return 0; }
+  tail -n 50 "$LOG_FILE"
+  printf "\nFollow logs in real time? [y/N]: "
+  read -r ans
+  if is_yes "$ans"; then
+    tail -f "$LOG_FILE"
+  fi
+}
+
+choose_db() {
   while true; do
-    echo "SESSION missing or invalid. Choose an option:"
-    echo "  [G] Generate"
-    echo "  [P] Paste"
-    echo "  [B] Start BOTMODE"
-    echo "  [Q] Quit"
-    printf "Enter choice: "
-    read -r choice
-    case "$choice" in
-      G|g)
-        python3 resources/session/ssgen.py
-        exit 0
-        ;;
-      P|p)
-        printf "Paste SESSION (353 chars): "
-        read -r SESSION
-        if [ ${#SESSION} -eq 353 ]; then
-          export SESSION
-          return 0
-        fi
-        echo "Invalid SESSION length. Expected 353 characters."
-        ;;
-      B|b)
-        if [ -n "$BOT_TOKEN" ]; then
-          export BOTMODE=true
-          return 0
-        fi
-        echo "BOT_TOKEN missing. Cannot start BOTMODE."
-        ;;
-      Q|q)
-        exit 0
-        ;;
-      *)
-        echo "Invalid choice."
-        ;;
+    say "Choose database:"
+    say "  [1] Redis"
+    say "  [2] MongoDB"
+    say "  [3] PostgreSQL"
+    printf "Select: "
+    read -r db
+    case "$db" in
+      1) printf "REDIS_URI: "; read -r REDIS_URI; export REDIS_URI; unset MONGO_URI DATABASE_URL; break ;;
+      2) printf "MONGO_URI: "; read -r MONGO_URI; export MONGO_URI; unset REDIS_URI DATABASE_URL; break ;;
+      3) printf "DATABASE_URL: "; read -r DATABASE_URL; export DATABASE_URL; unset REDIS_URI MONGO_URI; break ;;
+      *) warn "Invalid choice." ;;
     esac
   done
 }
 
-if [ -n "$SESSION1" ] ; then
-  python3 multi_client.py
-else
-  if ! validate_session; then
-    prompt_session
+save_env_preview() {
+  say ""
+  say "${BOLD}Preview:${RESET}"
+  cat <<EOF
+API_ID=$API_ID
+API_HASH=$API_HASH
+${SESSION:+SESSION=<set>}${BOT_TOKEN:+BOT_TOKEN=<set>}
+${REDIS_URI:+REDIS_URI=<set>}${MONGO_URI:+MONGO_URI=<set>}${DATABASE_URL:+DATABASE_URL=<set>}
+${LOG_CHANNEL:+LOG_CHANNEL=$LOG_CHANNEL}
+${HEROKU_APP_NAME:+HEROKU_APP_NAME=$HEROKU_APP_NAME}
+EOF
+  printf "Save to %s? [y/N]: " "$ENV_FILE"
+  read -r ans
+  is_yes "$ans" || return 1
+  {
+    printf 'API_ID=%s\n' "$API_ID"
+    printf 'API_HASH=%s\n' "$API_HASH"
+    [ -n "${SESSION:-}" ] && printf 'SESSION=%s\n' "$SESSION"
+    [ -n "${BOT_TOKEN:-}" ] && printf 'BOT_TOKEN=%s\n' "$BOT_TOKEN"
+    [ -n "${REDIS_URI:-}" ] && printf 'REDIS_URI=%s\n' "$REDIS_URI"
+    [ -n "${MONGO_URI:-}" ] && printf 'MONGO_URI=%s\n' "$MONGO_URI"
+    [ -n "${DATABASE_URL:-}" ] && printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
+    [ -n "${LOG_CHANNEL:-}" ] && printf 'LOG_CHANNEL=%s\n' "$LOG_CHANNEL"
+    [ -n "${HEROKU_APP_NAME:-}" ] && printf 'HEROKU_APP_NAME=%s\n' "$HEROKU_APP_NAME"
+  } > "$ENV_FILE"
+  ok "Saved $ENV_FILE"
+}
+
+setup_env_wizard() {
+  info "Environment setup wizard"
+  while true; do
+    printf "API_ID (integer): "
+    read -r API_ID
+    is_int "$API_ID" && break
+    warn "API_ID must be an integer."
+  done
+  printf "API_HASH: "
+  read -r API_HASH
+  while true; do
+    say "Login method: [1] SESSION  [2] BOT_TOKEN"
+    printf "Select: "
+    read -r mode
+    case "$mode" in
+      1) printf "SESSION: "; read -r SESSION; BOT_TOKEN=""; break ;;
+      2) printf "BOT_TOKEN: "; read -r BOT_TOKEN; SESSION=""; break ;;
+      *) warn "Invalid choice." ;;
+    esac
+  done
+  choose_db
+  printf "LOG_CHANNEL (optional): "; read -r LOG_CHANNEL
+  printf "HEROKU_APP_NAME (optional): "; read -r HEROKU_APP_NAME
+  save_env_preview
+}
+
+download_env_from_url() {
+  printf "Paste .env URL: "
+  read -r url
+  [ -n "$url" ] || { warn "Empty URL."; return 1; }
+  tmp=".env.download.$$"
+  if have curl; then curl -LfsS "$url" -o "$tmp" || { err "Download failed."; rm -f "$tmp"; return 1; }
+  elif have wget; then wget -qO "$tmp" "$url" || { err "Download failed."; rm -f "$tmp"; return 1; }
+  else err "Need curl or wget."; return 1; fi
+  if ! grep -Eq '^(API_ID|API_HASH|SESSION|BOT_TOKEN|REDIS_URI|MONGO_URI|DATABASE_URL)=' "$tmp"; then
+    warn "Downloaded file doesn't look like a valid .env; inspect?"
+    cat "$tmp"
+    printf "Keep it anyway? [y/N]: "
+    read -r ans
+    is_yes "$ans" || { rm -f "$tmp"; return 1; }
   fi
-  python3 -m pyUltroid
-fi
+  mv "$tmp" "$ENV_FILE"
+  ok "Saved $ENV_FILE from URL."
+}
+
+generate_session() {
+  ensure_venv || return 1
+  check_python || return 1
+  python3 resources/session/ssgen.py
+  printf "Save generated SESSION to %s? [y/N]: " "$ENV_FILE"
+  read -r ans
+  if is_yes "$ans"; then
+    printf "SESSION: "
+    read -r SESSION
+    [ -n "$SESSION" ] || { warn "SESSION empty."; return 1; }
+    load_env
+    save_env_preview
+  fi
+}
+
+ensure_setup() {
+  check_python || return 1
+  check_system_deps
+  ensure_venv || return 1
+  install_python_deps
+}
+
+menu() {
+  while true; do
+    clear >/dev/null 2>&1 || true
+    say "${BOLD}┌─────────────────────────────────────┐${RESET}"
+    say "${BOLD}│  🚀 Ultroid Launcher                │${RESET}"
+    say "${BOLD}├─────────────────────────────────────┤${RESET}"
+    say "${BOLD}│  Status: $(bot_running && printf '🟢 Running' || printf '🔴 Stopped')${RESET}"
+    say "${BOLD}│  Env:    $(env_ready && printf '✅ Ready' || { load_env; [ -n "${API_ID:-}${API_HASH:-}${SESSION:-}${BOT_TOKEN:-}" ] && printf '⚠️ Incomplete' || printf '❌ Not configured'; })${RESET}"
+    say "${BOLD}├─────────────────────────────────────┤${RESET}"
+    say "${BOLD}│  [1] Start Bot (foreground)         │${RESET}"
+    say "${BOLD}│  [2] Start Bot (background)         │${RESET}"
+    say "${BOLD}│  [3] Check Status                   │${RESET}"
+    say "${BOLD}│  [4] Stop Bot                       │${RESET}"
+    say "${BOLD}│  [5] Setup Environment              │${RESET}"
+    say "${BOLD}│  [6] Download .env from URL         │${RESET}"
+    say "${BOLD}│  [7] Generate Session               │${RESET}"
+    say "${BOLD}│  [8] Install/Update Dependencies    │${RESET}"
+    say "${BOLD}│  [9] View Logs                      │${RESET}"
+    say "${BOLD}│  [0] Exit                           │${RESET}"
+    say "${BOLD}└─────────────────────────────────────┘${RESET}"
+    printf "Select option: "
+    read -r choice
+    case "$choice" in
+      1) start_bot_fg; pause ;;
+      2) start_bot_bg; pause ;;
+      3) show_status; pause ;;
+      4) stop_bot; pause ;;
+      5) setup_env_wizard; pause ;;
+      6) download_env_from_url; pause ;;
+      7) generate_session; pause ;;
+      8) ensure_setup; pause ;;
+      9) show_logs; pause ;;
+      0) exit 0 ;;
+      *) warn "Invalid choice."; pause ;;
+    esac
+  done
+}
+
+main() {
+  case "${1:-}" in
+    --status|-s) show_status; exit 0 ;;
+    --stop) stop_bot; exit 0 ;;
+    --logs|-l) show_logs; exit 0 ;;
+    --env-url=*)
+      download_env_from_url "${1#*=}" >/dev/null 2>&1 || true
+      start_bot_bg
+      exit 0
+      ;;
+  esac
+  load_env
+  menu
+}
+
+main "$@"

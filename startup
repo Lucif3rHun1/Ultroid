@@ -402,15 +402,13 @@ download_env_from_url() {
 generate_session() {
   ensure_venv || return 1
   check_python || return 1
-  python3 resources/session/ssgen.py
-  printf "Save generated SESSION to %s? [y/N]: " "$ENV_FILE"
-  read -r ans
-  if is_yes "$ans"; then
-    printf "SESSION: "
-    read -r SESSION
-    [ -n "$SESSION" ] || { warn "SESSION empty."; return 1; }
+  if python3 resources/session/ssgen.py; then
     load_env
-    save_env_preview
+    ok "Session generation complete."
+    show_env_diagnostics
+  else
+    err "Session generation failed."
+    return 1
   fi
 }
 

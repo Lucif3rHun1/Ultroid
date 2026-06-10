@@ -88,6 +88,8 @@ def save_session_to_env(session_string):
 
 
 def get_api_id_and_hash(api_id_default=None, api_hash_default=None):
+    api_id_default = api_id_default if api_id_default else None
+    api_hash_default = api_hash_default if api_hash_default else None
     if api_id_default is not None:
         print("Using API_ID from .env")
     else:
@@ -148,22 +150,21 @@ def telethon_session():
     try:
         with TelegramClient(StringSession(), API_ID, API_HASH) as ultroid:
             print("Generating a string session for •ULTROID•")
+            session_string = ultroid.session.save()
             try:
                 ultroid.send_message(
                     "me",
-                    f"**ULTROID** `SESSION`:\n\n`{ultroid.session.save()}`\n\n**Do not share this anywhere!**",
+                    f"**ULTROID** `SESSION`:\n\n`{session_string}`\n\n**Do not share this anywhere!**",
                 )
-                save_session_to_env(ultroid.session.save())
                 print(
                     "Your SESSION has been generated. Check your Telegram saved messages!"
                 )
-                return 0
             except UserIsBotError:
                 # WARNING: Session strings are sensitive; keep them out of terminal logs.
                 print("You are trying to Generate Session for your Bot's Account?")
-                save_session_to_env(ultroid.session.save())
                 print("NOTE: You can't use that as User Session..")
-                return 0
+            save_session_to_env(session_string)
+            return 0
     except ApiIdInvalidError:
         print(
             "Your API ID/API HASH combination is invalid. Kindly recheck.\nQuitting..."

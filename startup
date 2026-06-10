@@ -33,11 +33,26 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 load_env() {
   if [ -f "$ENV_FILE" ]; then
-    set -a
-    # shellcheck disable=SC1090
-    . "$ENV_FILE"
-    set +a
+    while IFS='=' read -r key value; do
+      case "$key" in
+        ''|'#'*) continue ;;
+      esac
+      key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      [ -n "$key" ] || continue
+      export "$key=$value"
+    done < "$ENV_FILE"
   fi
+}
+
+show_env_diagnostics() {
+  load_env
+  say "${BOLD}Environment Status:${RESET}"
+  [ -n "${API_ID:-}" ] && ok "API_ID: set" || err "API_ID: MISSING"
+  [ -n "${API_HASH:-}" ] && ok "API_HASH: set" || err "API_HASH: MISSING"
+  [ -n "${SESSION:-}" ] && ok "SESSION: set" || { [ -n "${BOT_TOKEN:-}" ] && ok "BOT_TOKEN: set" || err "SESSION/BOT_TOKEN: MISSING"; }
+  [ -n "${REDIS_URI:-}" ] && ok "REDIS_URI: set" || { [ -n "${MONGO_URI:-}" ] && ok "MONGO_URI: set" || { [ -n "${DATABASE_URL:-}" ] && ok "DATABASE_URL: set" || err "Database URI: MISSING"; }; }
+  [ -n "${LOG_CHANNEL:-}" ] && ok "LOG_CHANNEL: set" || warn "LOG_CHANNEL: optional"
+  [ -n "${HEROKU_APP_NAME:-}" ] && ok "HEROKU_APP_NAME: set" || warn "HEROKU_APP_NAME: optional"
 }
 
 write_env_file() {
@@ -265,27 +280,103 @@ EOF
 
 setup_env_wizard() {
   info "Environment setup wizard"
+  load_env
+  missing=()
+  [ -z "${API_ID:-}" ] && missing+=("API_ID")
+  [ -z "${API_HASH:-}" ] && missing+=("API_HASH")
+  [ -z "${SESSION:-}" ] && [ -z "${BOT_TOKEN:-}" ] && missing+=("SESSION or BOT_TOKEN")
+  [ -z "${REDIS_URI:-}" ] && [ -z "${MONGO_URI:-}" ] && [ -z "${DATABASE_URL:-}" ] && missing+=("Database URI")
+  if [ "${#missing[@]}" -gt 0 ]; then
+    warn "Missing required fields: ${missing[*]}"
+    show_env_diagnostics
+  fi
+
+  if [ -n "${API_ID:-}" ]; then
+    printf "API_ID [%s]: " "$API_ID"
+    read -r new_val
+    [ -n "$new_val" ] && API_ID="$new_val"
+  else
+    while true; do
+      printf "API_ID (integer): "
+      read -r API_ID
+      is_int "$API_ID" && break
+      warn "API_ID must be an integer."
+    done
+  fi
+
+  if [ -n "${API_HASH:-}" ]; then
+    printf "API_HASH [%s]: " "$API_HASH"
+    read -r new_val
+    [ -n "$new_val" ] && API_HASH="$new_val"
+  else
+    printf "API_HASH: "
+    read -r API_HASH
+  fi
+
   while true; do
-    printf "API_ID (integer): "
-    read -r API_ID
-    is_int "$API_ID" && break
-    warn "API_ID must be an integer."
-  done
-  printf "API_HASH: "
-  read -r API_HASH
-  while true; do
-    say "Login method: [1] SESSION  [2] BOT_TOKEN"
-    printf "Select: "
-    read -r mode
+    current_login="SESSION"
+    [ -n "${BOT_TOKEN:-}" ] && current_login="BOT_TOKEN"
+    if [ -n "${SESSION:-}" ] || [ -n "${BOT_TOKEN:-}" ]; then
+      say "Login method: [1] SESSION  [2] BOT_TOKEN"
+      printf "Select [%s]: " "$current_login"
+      read -r mode
+      [ -z "$mode" ] && mode="$([ "$current_login" = "SESSION" ] && printf '1' || printf '2')"
+    else
+      say "Login method: [1] SESSION  [2] BOT_TOKEN"
+      printf "Select: "
+      read -r mode
+    fi
     case "$mode" in
-      1) printf "SESSION: "; read -r SESSION; BOT_TOKEN=""; break ;;
-      2) printf "BOT_TOKEN: "; read -r BOT_TOKEN; SESSION=""; break ;;
+      1)
+        if [ -n "${SESSION:-}" ]; then
+          printf "SESSION [%s]: " "$SESSION"
+          read -r new_val
+          [ -n "$new_val" ] && SESSION="$new_val"
+        else
+          printf "SESSION: "
+          read -r SESSION
+        fi
+        BOT_TOKEN=""
+        break
+        ;;
+      2)
+        if [ -n "${BOT_TOKEN:-}" ]; then
+          printf "BOT_TOKEN [%s]: " "$BOT_TOKEN"
+          read -r new_val
+          [ -n "$new_val" ] && BOT_TOKEN="$new_val"
+        else
+          printf "BOT_TOKEN: "
+          read -r BOT_TOKEN
+        fi
+        SESSION=""
+        break
+        ;;
       *) warn "Invalid choice." ;;
     esac
   done
-  choose_db
-  printf "LOG_CHANNEL (optional): "; read -r LOG_CHANNEL
-  printf "HEROKU_APP_NAME (optional): "; read -r HEROKU_APP_NAME
+
+  if [ -n "${REDIS_URI:-}" ]; then
+    printf "REDIS_URI [%s]: " "$REDIS_URI"
+    read -r new_val
+    [ -n "$new_val" ] && REDIS_URI="$new_val"
+  elif [ -n "${MONGO_URI:-}" ]; then
+    printf "MONGO_URI [%s]: " "$MONGO_URI"
+    read -r new_val
+    [ -n "$new_val" ] && MONGO_URI="$new_val"
+  elif [ -n "${DATABASE_URL:-}" ]; then
+    printf "DATABASE_URL [%s]: " "$DATABASE_URL"
+    read -r new_val
+    [ -n "$new_val" ] && DATABASE_URL="$new_val"
+  else
+    choose_db
+  fi
+
+  printf "LOG_CHANNEL (optional)%s: " "${LOG_CHANNEL:+ [$LOG_CHANNEL]}"
+  read -r new_val
+  [ -n "$new_val" ] && LOG_CHANNEL="$new_val"
+  printf "HEROKU_APP_NAME (optional)%s: " "${HEROKU_APP_NAME:+ [$HEROKU_APP_NAME]}"
+  read -r new_val
+  [ -n "$new_val" ] && HEROKU_APP_NAME="$new_val"
   save_env_preview
 }
 

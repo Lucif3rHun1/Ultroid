@@ -11,6 +11,7 @@ LOG_FILE=".ultroid.log"
 VENV_DIR="venv"
 OPTIONAL_REQ="resources/startup/optional-requirements.txt"
 REQ_FILE="requirements.txt"
+DEPS_MARKER=".deps_installed"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -155,6 +156,21 @@ install_python_deps() {
   ensure_venv || return 1
   check_python || return 1
   [ -f "$REQ_FILE" ] || { err "$REQ_FILE missing."; return 1; }
+
+  # Skip pip if marker is newer than every input file
+  if [ -f "$DEPS_MARKER" ]; then
+    marker_stale=0
+    for f in "$REQ_FILE" "$OPTIONAL_REQ"; do
+      [ -f "$f" ] || continue
+      if [ "$f" -nt "$DEPS_MARKER" ]; then marker_stale=1; break; fi
+    done
+    if [ "$marker_stale" -eq 0 ]; then
+      ok "Dependencies already up to date (marker: $DEPS_MARKER)."
+      return 0
+    fi
+    info "Requirements file changed since last install; reinstalling."
+  fi
+
   info "Upgrading pip..."
   python3 -m pip install -U pip setuptools wheel >/dev/null 2>&1 || true
   info "Installing required packages..."
@@ -163,37 +179,70 @@ install_python_deps() {
     info "Installing optional packages..."
     python3 -m pip install -r "$OPTIONAL_REQ" || warn "Optional requirements had issues; continuing."
   fi
+  : > "$DEPS_MARKER"
   ok "Dependencies installed."
+}
+
+# Build the in-venv python command for the bot. Runs in the *current*
+# shell, so the venv must already be active.
+run_bot_in_venv() {
+  python3 -m pyUltroid
 }
 
 start_bot_fg() {
   ensure_venv || return 1
   check_python || return 1
+  install_python_deps || return 1
   load_env
   if ! env_ready; then warn "Environment incomplete. Use menu 5/6/7 first."; return 1; fi
-  python3 -m pyUltroid
+  run_bot_in_venv
+}
+
+# Launch the bot in a fully detached process:
+#   - setsid  : new session, no controlling terminal
+#   - < /dev/null : no stdin attached to terminal
+#   - >>$LOG_FILE 2>&1 : stdout/stderr captured
+#   - disown  : removed from shell job table (no SIGHUP propagation)
+# Falls back to nohup if setsid is unavailable.
+launch_detached() {
+  local log="$1"
+  local cmd
+  if have setsid; then
+    setsid bash -c "cd '$ROOT_DIR' && . '$VENV_DIR/bin/activate' && export PATH='$ROOT_DIR/$VENV_DIR/bin':\$PATH && exec python3 -m pyUltroid" </dev/null >>"$log" 2>&1 &
+  else
+    nohup bash -c "cd '$ROOT_DIR' && . '$VENV_DIR/bin/activate' && export PATH='$ROOT_DIR/$VENV_DIR/bin':\$PATH && exec python3 -m pyUltroid" </dev/null >>"$log" 2>&1 &
+  fi
+  disown 2>/dev/null || true
+  echo "$!"
 }
 
 start_bot_bg() {
   ensure_venv || return 1
   check_python || return 1
+  install_python_deps || return 1
   load_env
   if ! env_ready; then warn "Environment incomplete. Use menu 5/6/7 first."; return 1; fi
   if bot_running; then warn "Bot already running (PID $(cat "$PID_FILE"))."; return 0; fi
-  info "Starting bot in background..."
-  nohup python3 -m pyUltroid >>"$LOG_FILE" 2>&1 &
-  pid="$!"
+  info "Starting bot in background (fully detached)..."
+  pid="$(launch_detached "$LOG_FILE")"
+  if [ -z "$pid" ]; then err "Failed to fork background process."; return 1; fi
   echo "$pid" > "$PID_FILE"
   sleep 1
-  if kill -0 "$pid" >/dev/null 2>&1; then ok "Started with PID $pid"; else err "Bot exited immediately. Check logs."; rm -f "$PID_FILE"; return 1; fi
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    ok "Started with PID $pid (detached; safe to close this terminal)"
+  else
+    err "Bot exited immediately. Check logs."
+    rm -f "$PID_FILE"
+    return 1
+  fi
 }
 
 show_status() {
   say "${BOLD}┌─────────────────────────────────────┐${RESET}"
-  say "${BOLD}│  🚀 Ultroid Launcher                │${RESET}"
+  say "${BOLD}│  🚀 Ultroid Status                  │${RESET}"
   say "${BOLD}├─────────────────────────────────────┤${RESET}"
-  say "  Status: $(status_text)"
-  say "  Env:    $(env_text)"
+  say "  Bot:  $(status_text)"
+  say "  Env:  $(env_text)"
   if bot_running; then
     pid="$(cat "$PID_FILE" 2>/dev/null)"
     uptime="$(ps -p "$pid" -o etime= 2>/dev/null | tr -d ' ' || true)"
@@ -205,7 +254,13 @@ show_status() {
   say "${BOLD}└─────────────────────────────────────┘${RESET}"
   if [ -f "$LOG_FILE" ]; then
     say ""
-    tail -n 20 "$LOG_FILE"
+    say "${BOLD}Last 50 log lines:${RESET}"
+    tail -n 50 "$LOG_FILE"
+  fi
+  printf "\nFollow logs in real time? [y/N]: "
+  read -r ans
+  if is_yes "$ans"; then
+    tail -f "$LOG_FILE"
   fi
 }
 
@@ -231,6 +286,30 @@ show_logs() {
   if is_yes "$ans"; then
     tail -f "$LOG_FILE"
   fi
+}
+
+setup_submenu() {
+  while true; do
+    say "${BOLD}┌─────────────────────────────────────┐${RESET}"
+    say "${BOLD}│  🛠  Setup                          │${RESET}"
+    say "${BOLD}├─────────────────────────────────────┤${RESET}"
+    say "  [1] Configure .env (wizard)"
+    say "  [2] Download .env from a URL"
+    say "  [3] Generate Telegram session"
+    say "  [4] Show current .env status"
+    say "  [0] Back to main menu"
+    say "${BOLD}└─────────────────────────────────────┘${RESET}"
+    printf "Select: "
+    read -r sub
+    case "$sub" in
+      1) setup_env_wizard; pause ;;
+      2) download_env_from_url; pause ;;
+      3) generate_session; pause ;;
+      4) show_env_diagnostics; pause ;;
+      0) return 0 ;;
+      *) warn "Invalid choice."; pause ;;
+    esac
+  done
 }
 
 choose_db() {
@@ -412,45 +491,47 @@ generate_session() {
   fi
 }
 
-ensure_setup() {
-  check_python || return 1
-  check_system_deps
-  ensure_venv || return 1
-  install_python_deps
-}
-
 menu() {
   while true; do
     clear >/dev/null 2>&1 || true
     say "${BOLD}┌─────────────────────────────────────┐${RESET}"
-    say "${BOLD}│  🚀 Ultroid Launcher                │${RESET}"
+    say "${BOLD}│  🚀 Ultroid                         │${RESET}"
     say "${BOLD}├─────────────────────────────────────┤${RESET}"
-    say "${BOLD}│  Status: $(bot_running && printf '🟢 Running' || printf '🔴 Stopped')${RESET}"
-    say "${BOLD}│  Env:    $(env_ready && printf '✅ Ready' || { load_env; [ -n "${API_ID:-}${API_HASH:-}${SESSION:-}${BOT_TOKEN:-}" ] && printf '⚠️ Incomplete' || printf '❌ Not configured'; })${RESET}"
+    say "  Bot: $(bot_running && printf '🟢 Running' || printf '🔴 Stopped')"
+    say "  Env: $(env_ready && printf '✅ Ready' || { load_env; [ -n "${API_ID:-}${API_HASH:-}${SESSION:-}${BOT_TOKEN:-}" ] && printf '⚠️  Incomplete' || printf '❌ Not configured'; })"
     say "${BOLD}├─────────────────────────────────────┤${RESET}"
-    say "${BOLD}│  [1] Start Bot (foreground)         │${RESET}"
-    say "${BOLD}│  [2] Start Bot (background)         │${RESET}"
-    say "${BOLD}│  [3] Check Status                   │${RESET}"
-    say "${BOLD}│  [4] Stop Bot                       │${RESET}"
-    say "${BOLD}│  [5] Setup Environment              │${RESET}"
-    say "${BOLD}│  [6] Download .env from URL         │${RESET}"
-    say "${BOLD}│  [7] Generate Session               │${RESET}"
-    say "${BOLD}│  [8] Install/Update Dependencies    │${RESET}"
-    say "${BOLD}│  [9] View Logs                      │${RESET}"
-    say "${BOLD}│  [0] Exit                           │${RESET}"
+    if bot_running; then
+      say "  [1] Restart Bot"
+      say "  [2] Stop Bot"
+    else
+      say "  [1] Start Bot"
+    fi
+    say "  [3] Status & Logs"
+    if ! env_ready; then
+      say "  [4] Setup  ${YELLOW}← first time? start here${RESET}"
+    else
+      say "  [4] Setup"
+    fi
+    say "  [0] Exit"
     say "${BOLD}└─────────────────────────────────────┘${RESET}"
     printf "Select option: "
     read -r choice
     case "$choice" in
-      1) start_bot_fg; pause ;;
-      2) start_bot_bg; pause ;;
+      1)
+        if bot_running; then
+          stop_bot
+          start_bot_bg
+        else
+          start_bot_bg
+        fi
+        pause
+        ;;
+      2)
+        if bot_running; then stop_bot; else warn "Bot is not running."; fi
+        pause
+        ;;
       3) show_status; pause ;;
-      4) stop_bot; pause ;;
-      5) setup_env_wizard; pause ;;
-      6) download_env_from_url; pause ;;
-      7) generate_session; pause ;;
-      8) ensure_setup; pause ;;
-      9) show_logs; pause ;;
+      4) setup_submenu ;;
       0) exit 0 ;;
       *) warn "Invalid choice."; pause ;;
     esac
@@ -462,6 +543,7 @@ main() {
     --status|-s) show_status; exit 0 ;;
     --stop) stop_bot; exit 0 ;;
     --logs|-l) show_logs; exit 0 ;;
+    --fg) start_bot_fg; exit 0 ;;
     --env-url=*)
       download_env_from_url "${1#*=}" >/dev/null 2>&1 || true
       start_bot_bg

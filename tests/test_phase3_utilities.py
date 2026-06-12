@@ -141,6 +141,30 @@ def test_validate_env_session_too_short():
     assert any(e.key == "SESSION" for e in errs)
 
 
+def test_validate_env_session_well_formed():
+    """Real Telethon sessions end with = padding — must be accepted."""
+    # Build a session-like string: prefix + base64url + padding
+    import base64
+    raw = b"fake_auth_key_material" * 8
+    encoded = base64.urlsafe_b64encode(raw).decode()
+    errs = validate_env({
+        "API_ID": "12345",
+        "API_HASH": "abcdef0123456789abcdef0123456789",
+        "SESSION": encoded,
+        "REDIS_URI": "redis://localhost:6379/0",
+    })
+    assert not any(e.key == "SESSION" for e in errs), \
+        f"unexpected: {[e for e in errs if e.key == 'SESSION']}"
+
+
+def test_validate_env_bot_token_well_formed():
+    """Bot tokens are 'digits:alphanumeric'."""
+    errs = validate_env({
+        "BOT_TOKEN": "1234567890:AAFabcdefghijklmnopqrstuvwxyz-_",
+    })
+    assert not any(e.key == "BOT_TOKEN" for e in errs)
+
+
 def test_validate_env_bad_api_id():
     for bad in ("abc", "12.5", "-1", ""):
         errs = validate_env({"API_ID": bad})

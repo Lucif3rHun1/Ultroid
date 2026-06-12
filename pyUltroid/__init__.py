@@ -89,6 +89,13 @@ if run_as_module:
                 '"BOT_TOKEN" not Found! Continuing with startup; bot features will stay limited until it is added.'
             )
     else:
+        if udB.get_key("SESSION") and not udB.get_key("BOT_TOKEN"):
+            LOGS.info(
+                "BOT_TOKEN is not set; running in USER_MODE (asst = ultroid_bot). "
+                "Add BOT_TOKEN to your .env to use a separate assistant bot."
+            )
+            USER_MODE = True
+            udB.set_key("USER_MODE", True)
         try:
             session = validate_session(getattr(Var, "SESSION", None), LOGS)
         except Exception:

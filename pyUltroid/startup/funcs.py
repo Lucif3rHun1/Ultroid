@@ -23,6 +23,7 @@ except ImportError:
 from telethon.errors import (
     ChannelsTooMuchError,
     ChatAdminRequiredError,
+    FloodWaitError,
     MessageIdInvalidError,
     MessageNotModifiedError,
     UserNotParticipantError,
@@ -211,6 +212,12 @@ async def autobot():
 
     if udB.get_key("BOT_TOKEN"):
         return
+    if not udB.get_key("AUTOBOT"):
+        LOGS.warning(
+            "BOT_TOKEN is not set and AUTOBOT is disabled — assistant bot will not be created. "
+            "Set BOT_TOKEN in your .env (preferred) or set AUTOBOT=1 in the DB to opt into auto-creation."
+        )
+        return
     await ultroid_bot.start()
     LOGS.info("MAKING A TELEGRAM BOT FOR YOU AT @BotFather, Kindly Wait")
     who = ultroid_bot.me
@@ -230,9 +237,7 @@ async def autobot():
         LOGS.critical(
             "Please make a Bot from @BotFather and add it's token in BOT_TOKEN, as an env var and restart me."
         )
-        import sys
-
-        sys.exit(1)
+        return
     await ultroid_bot.send_message(bf, name)
     await asyncio.sleep(1)
     isdone = (await ultroid_bot.get_messages(bf, limit=1))[0].text
@@ -244,9 +249,7 @@ async def autobot():
             LOGS.critical(
                 "Please make a Bot from @BotFather and add it's token in BOT_TOKEN, as an env var and restart me."
             )
-            import sys
-
-            sys.exit(1)
+            return
     await ultroid_bot.send_message(bf, username)
     await asyncio.sleep(1)
     isdone = (await ultroid_bot.get_messages(bf, limit=1))[0].text
@@ -268,10 +271,6 @@ async def autobot():
         LOGS.info(
             "Please Delete Some Of your Telegram bots at @Botfather or Set Var BOT_TOKEN with token of a bot"
         )
-
-        import sys
-
-        sys.exit(1)
 
 
 async def autopilot():
@@ -529,6 +528,8 @@ async def ready():
 
     try:
         await ultroid_bot(JoinChannelRequest("TheUltroid"))
+    except FloodWaitError as fwe:
+        LOGS.info(f"JoinChannelRequest hit flood wait of {fwe.seconds}s; skipping.")
     except Exception as er:
         LOGS.exception(er)
 

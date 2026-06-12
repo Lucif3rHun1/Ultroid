@@ -288,6 +288,47 @@ show_logs() {
   fi
 }
 
+set_bot_token() {
+  # Read a token silently (no echo, no shell history), validate format,
+  # write it to .env in place without ever printing it back.
+  load_env
+  say "${BOLD}Set BOT_TOKEN${RESET}"
+  say "Paste the token from @BotFather. It will NOT be echoed or stored in shell history."
+  printf "BOT_TOKEN: "
+  read -rs new_token
+  printf "\n"
+  [ -n "$new_token" ] || { warn "Empty token."; return 1; }
+  if ! echo "$new_token" | grep -Eq '^[0-9]{8,12}:[A-Za-z0-9_-]{30,}$'; then
+    warn "That doesn't look like a Telegram bot token (id:secret). Re-check the value."
+    return 1
+  fi
+  # Update .env: replace existing BOT_TOKEN= line, or append
+  if [ -f "$ENV_FILE" ] && grep -q "^BOT_TOKEN=" "$ENV_FILE"; then
+    tmp_env="$(mktemp)"
+    awk -v v="BOT_TOKEN=$new_token" '
+      /^BOT_TOKEN=/ { print v; next }
+      { print }
+    ' "$ENV_FILE" > "$tmp_env" && mv "$tmp_env" "$ENV_FILE"
+    ok "Replaced BOT_TOKEN in $ENV_FILE."
+  elif [ -f "$ENV_FILE" ]; then
+    printf 'BOT_TOKEN=%s\n' "$new_token" >> "$ENV_FILE"
+    ok "Appended BOT_TOKEN to $ENV_FILE."
+  else
+    printf 'BOT_TOKEN=%s\n' "$new_token" > "$ENV_FILE"
+    ok "Created $ENV_FILE with BOT_TOKEN."
+  fi
+  # Belt-and-suspenders: also strip the new token from any shell history
+  if [ -n "${HISTFILE:-}" ] && [ -f "$HISTFILE" ]; then
+    if have sed; then
+      sed -i.bak "/$new_token/d" "$HISTFILE" 2>/dev/null || true
+    fi
+  fi
+  # Wipe from in-memory env so it doesn't leak via `env` or /proc
+  unset BOT_TOKEN
+  new_token=""
+  return 0
+}
+
 setup_submenu() {
   while true; do
     say "${BOLD}┌─────────────────────────────────────┐${RESET}"
@@ -296,7 +337,8 @@ setup_submenu() {
     say "  [1] Configure .env (wizard)"
     say "  [2] Download .env from a URL"
     say "  [3] Generate Telegram session"
-    say "  [4] Show current .env status"
+    say "  [4] Set BOT_TOKEN (silent paste)"
+    say "  [5] Show current .env status"
     say "  [0] Back to main menu"
     say "${BOLD}└─────────────────────────────────────┘${RESET}"
     printf "Select: "
@@ -305,7 +347,8 @@ setup_submenu() {
       1) setup_env_wizard; pause ;;
       2) download_env_from_url; pause ;;
       3) generate_session; pause ;;
-      4) show_env_diagnostics; pause ;;
+      4) set_bot_token; pause ;;
+      5) show_env_diagnostics; pause ;;
       0) return 0 ;;
       *) warn "Invalid choice."; pause ;;
     esac
@@ -544,6 +587,7 @@ main() {
     --stop) stop_bot; exit 0 ;;
     --logs|-l) show_logs; exit 0 ;;
     --fg) start_bot_fg; exit 0 ;;
+    --set-token) set_bot_token; exit 0 ;;
     --env-url=*)
       download_env_from_url "${1#*=}" >/dev/null 2>&1 || true
       start_bot_bg

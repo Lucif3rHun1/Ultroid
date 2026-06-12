@@ -3,6 +3,9 @@
 *.session
 build
 test*
+!tests/
+!tests/**
+!.github/workflows/test.yml
 *.mp3
 *.webm
 *.webp

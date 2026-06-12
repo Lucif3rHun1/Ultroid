@@ -54,6 +54,15 @@ def main():
     ultroid_bot.run_in_loop(autopilot())
     ultroid_bot.loop.create_task(keep_redis_alive())
 
+    from pyUltroid._misc.health import schedule_health_check
+
+    try:
+        schedule_health_check(ultroid_bot.loop, udB, name=udB.name)
+    except Exception as e:
+        from . import LOGS
+
+        LOGS.debug(f"Could not schedule DB health check: {e}")
+
     pmbot = udB.get_key("PMBOT")
     manager = udB.get_key("MANAGER")
     addons = udB.get_key("ADDONS") or Var.ADDONS

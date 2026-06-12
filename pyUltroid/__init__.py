@@ -54,6 +54,13 @@ if run_as_module:
     udB = UltroidDB()
     update_envs()
 
+    from ._misc.config_validation import validate_env, report as _report_validation
+
+    _validation_errors = _report_validation(
+        validate_env({k: v for k, v in os.environ.items()}),
+        LOGS,
+    )
+
     LOGS.info(f"Connecting to {udB.name}...")
     if udB.ping():
         LOGS.info(f"Connected to {udB.name} Successfully!")

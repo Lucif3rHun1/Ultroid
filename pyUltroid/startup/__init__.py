@@ -72,6 +72,20 @@ if run_as_module:
         datefmt="%m/%d/%Y, %H:%M:%S",
         handlers=[FileHandler(file), StreamHandler()],
     )
+
+    from .._misc.json_log import is_json_enabled
+    from logging import Formatter as _Fmt, StreamHandler as _SH
+
+    if is_json_enabled():
+        from .._misc.json_log import JsonFormatter as _JF
+
+        # Replace the StreamHandler formatter in place so terminal output
+        # goes JSON without duplicating log lines through a second handler.
+        root = __import__("logging").getLogger()
+        for h in root.handlers:
+            if isinstance(h, _SH):
+                h.setFormatter(_JF())
+
     try:
 
         import coloredlogs

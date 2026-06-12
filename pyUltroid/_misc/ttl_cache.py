@@ -99,6 +99,10 @@ class TTLCache(Generic[K, V]):
             raise KeyError(key)
         return value  # type: ignore[return-value]
 
+    def __delitem__(self, key: K) -> None:
+        if not self.delete(key):
+            raise KeyError(key)
+
     def __contains__(self, key: K) -> bool:
         return self.get(key, _MISSING := object()) is not _MISSING
 

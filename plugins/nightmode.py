@@ -125,7 +125,9 @@ async def open_grp():
 async def close_grp():
     __, _, h2, m2 = 0, 0, 7, 0
     if udB.get_key("NIGHT_TIME"):
-        _, __, h2, m2 = eval(udB.get_key("NIGHT_TIME"))
+        import ast
+        # SECURITY: Use ast.literal_eval instead of eval()
+        _, __, h2, m2 = ast.literal_eval(udB.get_key("NIGHT_TIME"))
     for chat in keym.get():
         try:
             await ultroid_bot(
@@ -148,7 +150,9 @@ if AsyncIOScheduler and keym.get():
     try:
         h1, m1, h2, m2 = 0, 0, 7, 0
         if udB.get_key("NIGHT_TIME"):
-            h1, m1, h2, m2 = eval(udB.get_key("NIGHT_TIME"))
+            import ast
+            # SECURITY: Use ast.literal_eval instead of eval()
+            h1, m1, h2, m2 = ast.literal_eval(udB.get_key("NIGHT_TIME"))
         sch = AsyncIOScheduler()
         sch.add_job(close_grp, trigger="cron", hour=h1, minute=m1)
         sch.add_job(open_grp, trigger="cron", hour=h2, minute=m2)

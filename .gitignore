@@ -45,3 +45,7 @@ bin-release/
 
 # fly.io configs
 fly.toml
+
+# OpenCode AI tooling
+.opencode/
+.omo/

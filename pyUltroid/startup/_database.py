@@ -7,6 +7,7 @@
 
 import ast
 import os
+import subprocess
 import sys
 
 from .. import run_as_module
@@ -22,28 +23,28 @@ if Var.REDIS_URI or Var.REDISHOST:
         from redis import Redis
     except ImportError:
         LOGS.info("Installing 'redis' for database.")
-        os.system(f"{sys.executable} -m pip install -q redis hiredis")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "redis", "hiredis"], check=False)
         from redis import Redis
 elif Var.MONGO_URI:
     try:
         from pymongo import MongoClient
     except ImportError:
         LOGS.info("Installing 'pymongo' for database.")
-        os.system(f"{sys.executable} -m pip install -q pymongo[srv]")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pymongo[srv]"], check=False)
         from pymongo import MongoClient
 elif Var.DATABASE_URL:
     try:
         import psycopg2
     except ImportError:
         LOGS.info("Installing 'pyscopg2' for database.")
-        os.system(f"{sys.executable} -m pip install -q psycopg2-binary")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "psycopg2-binary"], check=False)
         import psycopg2
 else:
     try:
         from localdb import Database
     except ImportError:
         LOGS.info("Using local file as database.")
-        os.system(f"{sys.executable} -m pip install -q localdb.json")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "localdb.json"], check=False)
         from localdb import Database
 
 # --------------------------------------------------------------------------------------------- #
@@ -159,6 +160,29 @@ class MongoDB(_BaseDatabase):
 # Please use https://elephantsql.com/ !
 
 
+import re
+
+def _validate_sql_identifier(name: str) -> str:
+    """
+    Validate and sanitize SQL identifier (column/table name).
+    Only allows alphanumeric and underscore, must start with letter or underscore.
+    Prevents SQL injection via identifier interpolation.
+    """
+    if not name:
+        raise ValueError("Empty identifier")
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
+        raise ValueError(f"Invalid SQL identifier: {name}")
+    # Prevent SQL keywords (basic list)
+    reserved = {'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE',
+                'TABLE', 'COLUMN', 'INDEX', 'WHERE', 'FROM', 'JOIN', 'UNION',
+                'VALUES', 'SET', 'KEY', 'PRIMARY', 'FOREIGN', 'REFERENCES',
+                'DEFAULT', 'NULL', 'NOT', 'AND', 'OR', 'ORDER', 'GROUP', 'BY',
+                'LIMIT', 'OFFSET', 'DISTINCT', 'COUNT', 'SUM', 'AVG', 'MIN', 'MAX'}
+    if name.upper() in reserved:
+        raise ValueError(f"Reserved SQL keyword: {name}")
+    return name
+
+
 class SqlDB(_BaseDatabase):
     def __init__(self, url):
         self._url = url
@@ -199,7 +223,10 @@ class SqlDB(_BaseDatabase):
         return [_[0] for _ in data]
 
     def get(self, variable):
+        # SECURITY: Validate column name to prevent SQL injection
+        _validate_sql_identifier(variable)
         try:
+            # Column names cannot be parameterized, but we validated them
             self._cursor.execute(f"SELECT {variable} FROM Ultroid")
         except psycopg2.errors.UndefinedColumn:
             return None
@@ -212,19 +239,27 @@ class SqlDB(_BaseDatabase):
                     return i[0]
 
     def set(self, key, value):
+        # SECURITY: Validate column name to prevent SQL injection
+        _validate_sql_identifier(key)
         try:
+            # Column names cannot be parameterized, but we validated them
             self._cursor.execute(f"ALTER TABLE Ultroid DROP COLUMN IF EXISTS {key}")
         except (psycopg2.errors.UndefinedColumn, psycopg2.errors.SyntaxError):
             pass
         except BaseException as er:
             LOGS.exception(er)
         self._cache.update({key: value})
+        # Column names cannot be parameterized, but we validated them
         self._cursor.execute(f"ALTER TABLE Ultroid ADD {key} TEXT")
+        # Use parameterized query for VALUES
         self._cursor.execute(f"INSERT INTO Ultroid ({key}) values (%s)", (str(value),))
         return True
 
     def delete(self, key):
+        # SECURITY: Validate column name to prevent SQL injection
+        _validate_sql_identifier(key)
         try:
+            # Column names cannot be parameterized, but we validated them
             self._cursor.execute(f"ALTER TABLE Ultroid DROP COLUMN {key}")
         except psycopg2.errors.UndefinedColumn:
             return False

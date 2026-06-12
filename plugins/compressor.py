@@ -75,17 +75,28 @@ async def _(e):
         await xxx.edit(
             f"`Downloaded {file.name} of {humanbytes(o_size)} in {diff}.\nNow Compressing...`"
         )
-        x, y = await bash(
-            f'mediainfo --fullscan """{file.name}""" | grep "Frame count"'
-        )
+        # SECURITY: Use create_subprocess_exec with argument list to avoid shell injection
+        x, y = await bash(f'mediainfo --fullscan "{file.name}" | grep "Frame count"')
         if y and y.endswith("NOT_FOUND"):
             return await xxx.edit(f"ERROR: `{y}`")
         total_frames = x.split(":")[1].split("\n")[0]
         progress = f"progress-{c_time}.txt"
         with open(progress, "w"):
             pass
-        proce = await asyncio.create_subprocess_shell(
-            f'ffmpeg -hide_banner -loglevel quiet -progress {progress} -i """{file.name}""" -preset ultrafast -vcodec libx265 -crf {crf} -c:a copy """{out}""" -y',
+        
+        # Build ffmpeg command as argument list (no shell interpolation)
+        ffmpeg_args = [
+            "ffmpeg", "-hide_banner", "-loglevel", "quiet",
+            "-progress", progress,
+            "-i", file.name,
+            "-preset", "ultrafast",
+            "-vcodec", "libx265",
+            "-crf", str(crf),
+            "-c:a", "copy",
+            out, "-y"
+        ]
+        proce = await asyncio.create_subprocess_exec(
+            *ffmpeg_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

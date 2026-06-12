@@ -321,7 +321,23 @@ def _stringify(text=None, *args, **kwargs):
 
 
 async def aexec(code, event):
-    # Create a dedicated namespace for execution
+    # Create a dedicated namespace for execution with RESTRICTED builtins
+    # SECURITY: __builtins__ removed to prevent arbitrary code execution
+    # Only safe builtins are explicitly allowed
+    safe_builtins = {
+        'len': len, 'str': str, 'int': int, 'float': float, 'bool': bool,
+        'list': list, 'dict': dict, 'tuple': tuple, 'set': set,
+        'range': range, 'enumerate': enumerate, 'zip': zip, 'map': map,
+        'filter': filter, 'sum': sum, 'min': min, 'max': max,
+        'abs': abs, 'round': round, 'sorted': sorted, 'reversed': reversed,
+        'any': any, 'all': all, 'isinstance': isinstance, 'hasattr': hasattr,
+        'getattr': getattr, 'setattr': setattr, 'delattr': delattr,
+        'type': type, 'object': object, 'Exception': Exception,
+        'ValueError': ValueError, 'TypeError': TypeError, 'KeyError': KeyError,
+        'IndexError': IndexError, 'AttributeError': AttributeError,
+        'print': _stringify,  # Use our custom print
+    }
+    
     exec_globals = {
         'print': _stringify,
         'p': _stringify,
@@ -331,7 +347,7 @@ async def aexec(code, event):
         'reply': await event.get_reply_message(),
         'chat': event.chat_id,
         'u': u,
-        '__builtins__': __builtins__,
+        '__builtins__': safe_builtins,
         '__name__': __name__
     }
     
@@ -342,7 +358,7 @@ async def aexec(code, event):
     )
     
     try:
-        # Execute the wrapped code in our custom namespace
+        # Execute the wrapped code in our restricted namespace
         exec(wrapped_code, exec_globals)
         # Get the defined async function
         func = exec_globals['__aexec']

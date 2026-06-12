@@ -200,7 +200,7 @@ if run_as_module:
                     )
         try:
             load_addons(dl)  # dl.split("/")[-1].replace(".py", ""))
-        except BaseException:
+        except Exception:
             os.remove(dl)
             return await eor(ok, f"**ERROR**\n\n`{format_exc()}`", time=30)
         plug = sm.replace(".py", "")
@@ -220,7 +220,7 @@ if run_as_module:
                 for d in LIST[plug]:
                     x += HNDLR + d + "\n"
                 await eod(ok, f"✓ `Ultroid - Installed`: `{plug}` ✓\n\n`{x}`")
-            except BaseException:
+            except Exception:
                 await eod(ok, f"✓ `Ultroid - Installed`: `{plug}` ✓")
 
     async def heroku_logs(event):
@@ -236,7 +236,7 @@ if run_as_module:
             )
         try:
             app = (heroku3.from_key(Var.HEROKU_API)).app(Var.HEROKU_APP_NAME)
-        except BaseException as se:
+        except Exception as se:
             LOGS.info(se)
             return await xx.edit(
                 "`HEROKU_API` and `HEROKU_APP_NAME` is wrong! Kindly re-check in config vars."
@@ -292,9 +292,16 @@ if run_as_module:
 
 async def bash(cmd, run_code=0):
     """
-    run any command in subprocess and get output or error."""
-    process = await asyncio.create_subprocess_shell(
-        cmd,
+    run any command in subprocess and get output or error.
+    SECURITY: Uses create_subprocess_exec with shlex.split() to avoid shell injection.
+    """
+    import shlex
+    # Split command into arguments safely (handles quoted strings)
+    args = shlex.split(cmd)
+    if not args:
+        return "", "Empty command"
+    process = await asyncio.create_subprocess_exec(
+        *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -403,7 +410,21 @@ async def async_searcher(
     **kwargs,
 ):
     if aiohttp_client:
-        async with aiohttp_client(headers=headers) as client:
+        # Validate URL to prevent SSRF attacks
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("Invalid URL scheme")
+        
+        # Add security headers
+        secure_headers = {
+            "User-Agent": "Ultroid/1.0 (Security Scanner)",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+        }
+        if headers:
+            secure_headers.update(headers)
+        
+        async with aiohttp_client(headers=secure_headers) as client:
             method = client.head if head else (client.post if post else client.get)
             data = await method(url, *args, **kwargs)
             if evaluate:
@@ -628,7 +649,7 @@ async def restart(ult=None):
             if ult:
                 await ult.edit("`Restarting your app, please wait for a minute!`")
             app.restart()
-        except BaseException as er:
+        except Exception as er:
             if ult:
                 return await eor(
                     ult,
@@ -668,7 +689,7 @@ async def shutdown(ult):
             app = Heroku.apps()[Var.HEROKU_APP_NAME]
             await ult.edit("`Shutting Down your app, please wait for a minute!`")
             app.process_formation()[dynotype].scale(0)
-        except BaseException as e:
+        except Exception as e:
             LOGS.exception(e)
             return await ult.edit(
                 "`HEROKU_API` and `HEROKU_APP_NAME` is wrong! Kindly re-check in config vars."

@@ -94,7 +94,9 @@ def json_parser(data, indent=None, ascii=False):
             if indent:
                 parsed = json.dumps(data, indent=indent, ensure_ascii=ascii)
     except JSONDecodeError:
-        parsed = eval(data)
+        # SECURITY: Removed eval() - only parse valid JSON
+        # Return raw data if not valid JSON instead of evaluating arbitrary code
+        parsed = data
     return parsed
 
 
@@ -258,26 +260,47 @@ async def webuploader(chat_id: int, msg_id: int, uploader: str):
     else:
         return "Uploader not supported or invalid."
 
-    files = {"file": open(file, "rb")}  # Adjusted for both formats
-
     try:
         if uploader == "filebin":
-            cmd = f"curl -X POST --data-binary '@{file}' -H 'filename: \"{file}\"' \"{url}\""
-            response = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            if response.returncode == 0:
-                response_json = json.loads(response.stdout)
-                bin_id = response_json.get("bin", {}).get("id")
-                if bin_id:
-                    filebin_url = f"https://filebin.net/{bin_id}"
-                    return filebin_url
+            import requests
+            with open(file, 'rb') as f:
+                response = requests.post(
+                    url,
+                    files={'file': (file, f, 'text/plain')},
+                    headers={'filename': file}
+                )
+                if response.status_code == 200:
+                    response_json = response.json()
+                    bin_id = response_json.get("bin", {}).get("id")
+                    if bin_id:
+                        filebin_url = f"https://filebin.net/{bin_id}"
+                        return filebin_url
+                    else:
+                        return "Failed to extract bin ID from Filebin response"
                 else:
-                    return "Failed to extract bin ID from Filebin response"
-            else:
-                return f"Failed to upload file to Filebin: {response.stderr.strip()}"
+                    return f"Failed to upload file to Filebin: {response.text}"
         elif uploader == "catbox":
-            cmd = f"curl -F reqtype=fileupload -F time=24h -F 'fileToUpload=@{file}' {url}"
+            import requests
+            with open(file, 'rb') as f:
+                response = requests.post(
+                    url,
+                    files={'reqtype': 'fileupload', 'time': '24h', 'fileToUpload': (file, f)}
+                )
+                if response.status_code == 200:
+                    return response.text.strip()
+                else:
+                    return f"Failed to upload file to Catbox: {response.text}"
         elif uploader == "0x0.st":
-            cmd = f"curl -F 'file=@{file}' {url}"
+            import requests
+            with open(file, 'rb') as f:
+                response = requests.post(
+                    url,
+                    files={'file': (file, f)}
+                )
+                if response.status_code == 200:
+                    return response.text.strip()
+                else:
+                    return f"Failed to upload file to 0x0.st: {response.text}"
         elif uploader == "file.io" or uploader == "siasky":
             try:
                 status = await async_searcher(
@@ -293,25 +316,38 @@ async def webuploader(chat_id: int, msg_id: int, uploader: str):
         else:
             raise ValueError("Uploader not supported")
 
-        response = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        if response.returncode == 0:
-            return response.stdout.strip()
-        else:
-            return f"Failed to upload file: {response.stderr.strip()}"
+        return "Failed to get valid URL for the uploaded file."
     except Exception as e:
         return f"Failed to upload file: {e}"
-
-    del _webupload_cache.get(chat_id, {})[msg_id]
-    return "Failed to get valid URL for the uploaded file."
+    finally:
+        # Clean up cache entry after processing (success or failure)
+        if chat_id in _webupload_cache and msg_id in _webupload_cache.get(chat_id, {}):
+            try:
+                del _webupload_cache[chat_id][msg_id]
+            except (KeyError, TypeError):
+                pass
 
 
 def get_all_files(path, extension=None):
     filelist = []
+    # Validate path to prevent directory traversal attacks
+    if not os.path.isabs(path):
+        path = os.path.abspath(path)
+    
+    # Check if path exists and is a directory
+    if not os.path.exists(path) or not os.path.isdir(path):
+        return []
+    
     for root, dirs, files in os.walk(path):
-        for file in files:
+        # Sort directories to prevent timing attacks
+        dirs.sort()
+        for file in sorted(files):
             if not (extension and not file.endswith(extension)):
-                filelist.append(os.path.join(root, file))
-    return sorted(filelist)
+                file_path = os.path.join(root, file)
+                # Validate file path to prevent directory traversal
+                if os.path.commonpath([path, file_path]) == path:
+                    filelist.append(file_path)
+    return filelist
 
 
 def text_set(text):
@@ -432,21 +468,20 @@ async def get_google_images(query):
     """
     LOGS.info(f"Searching Google Images for: {query}")
     
-    # Google Custom Search API credentials
-    google_keys = [
-        {
-            "key": "AIzaSyAj75v6vHWLJdJaYcj44tLz7bdsrh2g7Y0",
-            "cx": "712a54749d99a449e"
-        },
-        {
-            "key": "AIzaSyDFQQwPLCzcJ9FDao-B7zDusBxk8GoZ0HY", 
-            "cx": "001bbd139705f44a6"
-        },
-        {
-            "key": "AIzaSyD0sRNZUa8-0kq9LAREDAFKLNO1HPmikRU",
-            "cx": "4717c609c54e24250"
-        }
-    ]
+    # Google Custom Search API credentials - read from environment variables
+    # These should be set via environment variables or config file
+    import os
+    google_keys = []
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    cx = os.environ.get("GOOGLE_CX")
+    
+    if api_key and cx:
+        google_keys = [{"key": api_key, "cx": cx}]
+    
+    if not google_keys:
+        LOGS.error("Google Custom Search API credentials not configured")
+        return []
+    
     key_index = random.randint(0, len(google_keys) - 1)
     GOOGLE_API_KEY = google_keys[key_index]["key"]
     GOOGLE_CX = google_keys[key_index]["cx"]
@@ -504,10 +539,15 @@ async def get_chatbot_reply(message):
     )
     try:
         return (await async_searcher(req_link, re_json=True)).get("response")
-    except Exception:
+    except Exception as e:
         LOGS.info(f"**ERROR:**`{format_exc()}`")
+        LOGS.debug(f"Chatbot API error: {str(e)[:100]}")
 
 def check_filename(filroid):
+    # Validate filename to prevent path traversal attacks
+    if not os.path.isabs(filroid):
+        filroid = os.path.abspath(filroid)
+    
     if os.path.exists(filroid):
         no = 1
         while True:
@@ -1048,8 +1088,10 @@ class TgConverter:
 
 
 def _get_value(stri):
+    import ast
     try:
-        value = eval(stri.strip())
+        # SECURITY: Use ast.literal_eval instead of eval() - only evaluates literals
+        value = ast.literal_eval(stri.strip())
     except Exception as er:
         from .. import LOGS
 

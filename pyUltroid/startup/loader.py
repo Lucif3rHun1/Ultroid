@@ -107,21 +107,24 @@ def load_other_plugins(addons=None, pmbot=None, manager=None, vcbot=None):
     # for addons
     if addons:
         if url := udB.get_key("ADDONS_URL"):
-            subprocess.run(f"git clone -q {url} addons", shell=True)
+            # SECURITY: Use subprocess.run with args list instead of shell=True
+            subprocess.run(["git", "clone", "-q", url, "addons"], check=False)
         if os.path.exists("addons") and not os.path.exists("addons/.git"):
             rmtree("addons")
         if not os.path.exists("addons"):
+            # SECURITY: Use subprocess.run with args list instead of shell=True
             subprocess.run(
-                f"git clone -q -b {Repo().active_branch} https://github.com/TeamUltroid/UltroidAddons.git addons",
-                shell=True,
+                ["git", "clone", "-q", "-b", Repo().active_branch, "https://github.com/TeamUltroid/UltroidAddons.git", "addons"],
+                check=False,
             )
         else:
-            subprocess.run("cd addons && git pull -q && cd ..", shell=True)
+            # SECURITY: Use subprocess.run with args list and cwd instead of shell=True
+            subprocess.run(["git", "pull", "-q"], cwd="addons", check=False)
 
         if not os.path.exists("addons"):
             subprocess.run(
-                "git clone -q https://github.com/TeamUltroid/UltroidAddons.git addons",
-                shell=True,
+                ["git", "clone", "-q", "https://github.com/TeamUltroid/UltroidAddons.git", "addons"],
+                check=False,
             )
         if os.path.exists("addons/addons.txt"):
             # generally addons req already there so it won't take much time
@@ -129,8 +132,8 @@ def load_other_plugins(addons=None, pmbot=None, manager=None, vcbot=None):
             #        "rm -rf /usr/local/lib/python3.*/site-packages/pip/_vendor/.wh*"
             #    )
             subprocess.run(
-                f"{sys.executable} -m pip install --no-cache-dir -q -r ./addons/addons.txt",
-                shell=True,
+                [sys.executable, "-m", "pip", "install", "--no-cache-dir", "-q", "-r", "./addons/addons.txt"],
+                check=False,
             )
 
         _exclude = _split_plugins(
@@ -168,12 +171,15 @@ def load_other_plugins(addons=None, pmbot=None, manager=None, vcbot=None):
 
             if os.path.exists("vcbot"):
                 if os.path.exists("vcbot/.git"):
-                    subprocess.run("cd vcbot && git pull", shell=True)
+                    # SECURITY: Use subprocess.run with args list and cwd instead of shell=True
+                    subprocess.run(["git", "pull"], cwd="vcbot", check=False)
                 else:
                     rmtree("vcbot")
             if not os.path.exists("vcbot"):
+                # SECURITY: Use subprocess.run with args list instead of shell=True
                 subprocess.run(
-                    "git clone https://github.com/TeamUltroid/VcBot vcbot", shell=True
+                    ["git", "clone", "https://github.com/TeamUltroid/VcBot", "vcbot"],
+                    check=False,
                 )
             try:
                 if not os.path.exists("vcbot/downloads"):

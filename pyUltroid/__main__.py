@@ -116,4 +116,13 @@ def main():
 if __name__ == "__main__":
     main()
 
+    from pyUltroid._misc.lifecycle import install_signal_handlers
+
+    try:
+        install_signal_handlers(asst.loop)
+    except Exception as e:
+        from . import LOGS
+
+        LOGS.debug(f"Could not install signal handlers: {e}")
+
     asst.run()

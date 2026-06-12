@@ -46,7 +46,10 @@ if run_as_module:
 
     start_time = time.time()
     _ult_cache = {}
-    _ignore_eval = []
+    from collections import deque
+
+    _IGNORE_EVAL_MAX_SIZE = 4096
+    _ignore_eval = deque(maxlen=_IGNORE_EVAL_MAX_SIZE)
 
     udB = UltroidDB()
     update_envs()
@@ -141,6 +144,7 @@ if run_as_module:
 
     # Register graceful disconnect on process exit
     import atexit
+    from ._misc.context import bind_from_globals
 
     def _atexit_disconnect():
         """Disconnect all Telegram clients on unexpected process exit."""
@@ -169,6 +173,7 @@ if run_as_module:
 
     atexit.register(_atexit_disconnect)
     sys.excepthook = _uncaught_exception_handler
+    bind_from_globals()
 
     HNDLR = udB.get_key("HNDLR") or "."
     DUAL_HNDLR = udB.get_key("DUAL_HNDLR") or "/"

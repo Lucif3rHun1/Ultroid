@@ -35,6 +35,17 @@ try:
 except ImportError:
     heroku3 = None
 
+from .._misc.circuit_breaker import CircuitBreaker, CircuitOpenError
+
+# Heroku API: most-trodden external dep; threshold sized to absorb a
+# brief token-rotation 5xx burst without triggering needless restarts.
+_HEROKU_BREAKER = CircuitBreaker(
+    "heroku_api",
+    failure_threshold=5,
+    reset_timeout=30.0,
+    expected_exceptions=(Exception,),
+)
+
 try:
     from git import Repo
     from git.exc import GitCommandError, InvalidGitRepositoryError, NoSuchPathError
@@ -236,6 +247,10 @@ if run_as_module:
             )
         try:
             app = (heroku3.from_key(Var.HEROKU_API)).app(Var.HEROKU_APP_NAME)
+        except CircuitOpenError:
+            return await xx.edit(
+                "`Heroku API temporarily unavailable. Try again shortly.`"
+            )
         except Exception as se:
             LOGS.info(se)
             return await xx.edit(
@@ -649,6 +664,13 @@ async def restart(ult=None):
             if ult:
                 await ult.edit("`Restarting your app, please wait for a minute!`")
             app.restart()
+        except CircuitOpenError:
+            LOGS.warning("Heroku circuit OPEN; restart request skipped")
+            if ult:
+                return await eor(
+                    ult,
+                    "`Heroku API temporarily unavailable. Try again shortly.`",
+                )
         except Exception as er:
             if ult:
                 return await eor(
@@ -689,6 +711,12 @@ async def shutdown(ult):
             app = Heroku.apps()[Var.HEROKU_APP_NAME]
             await ult.edit("`Shutting Down your app, please wait for a minute!`")
             app.process_formation()[dynotype].scale(0)
+        except CircuitOpenError:
+            LOGS.warning("Heroku circuit OPEN; shutdown scale-down skipped")
+            return await ult.edit(
+                "`Heroku API temporarily unavailable. The local process is exiting; "
+                "Heroku may keep the dyno running until it next idles.`"
+            )
         except Exception as e:
             LOGS.exception(e)
             return await ult.edit(

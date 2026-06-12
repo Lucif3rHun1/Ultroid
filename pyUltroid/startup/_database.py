@@ -9,9 +9,11 @@ import ast
 import os
 import subprocess
 import sys
+import threading
 
 from .. import run_as_module
 from . import *
+from .._misc.ttl_cache import TTLCache
 
 if run_as_module:
     from ..configs import Var
@@ -52,19 +54,24 @@ else:
 
 class _BaseDatabase:
     def __init__(self, *args, **kwargs):
-        self._cache = {}
+        self._cache = TTLCache(maxsize=2048, ttl=0)
+        self._cache_lock = threading.RLock()
 
     def get_key(self, key):
-        if key in self._cache:
-            return self._cache[key]
+        with self._cache_lock:
+            cached = self._cache.get(key, _MISSING := object())
+            if cached is not _MISSING:
+                return cached
         value = self._get_data(key)
-        self._cache.update({key: value})
+        with self._cache_lock:
+            self._cache.set(key, value)
         return value
 
     def re_cache(self):
-        self._cache.clear()
+        with self._cache_lock:
+            self._cache.clear()
         for key in self.keys():
-            self._cache.update({key: self.get_key(key)})
+            self.get_key(key)
 
     def ping(self):
         return 1
@@ -77,8 +84,8 @@ class _BaseDatabase:
         return []
 
     def del_key(self, key):
-        if key in self._cache:
-            del self._cache[key]
+        with self._cache_lock:
+            self._cache.delete(key)
         self.delete(key)
         return True
 
@@ -94,7 +101,8 @@ class _BaseDatabase:
 
     def set_key(self, key, value, cache_only=False):
         value = self._get_data(data=value)
-        self._cache[key] = value
+        with self._cache_lock:
+            self._cache.set(key, value)
         if cache_only:
             return
         return self.set(str(key), str(value))
@@ -110,7 +118,14 @@ class _BaseDatabase:
 
 class MongoDB(_BaseDatabase):
     def __init__(self, key, dbname="UltroidDB"):
-        self.dB = MongoClient(key, serverSelectionTimeoutMS=5000)
+        self.dB = MongoClient(
+            key,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=10000,
+            retryWrites=True,
+            appname="pyUltroid",
+        )
         self.db = self.dB[dbname]
         super().__init__()
 
@@ -189,7 +204,14 @@ class SqlDB(_BaseDatabase):
         self._connection = None
         self._cursor = None
         try:
-            self._connection = psycopg2.connect(dsn=url)
+            self._connection = psycopg2.connect(
+                dsn=url,
+                connect_timeout=5,
+                keepalives=1,
+                keepalives_idle=30,
+                keepalives_interval=10,
+                keepalives_count=3,
+            )
             self._connection.autocommit = True
             self._cursor = self._connection.cursor()
             self._cursor.execute(
@@ -368,6 +390,9 @@ def UltroidDB():
                 platform=HOSTED_ON,
                 decode_responses=True,
                 socket_timeout=5,
+                socket_connect_timeout=5,
+                socket_keepalive=True,
+                health_check_interval=30,
                 retry_on_timeout=True,
             )
         elif MongoClient:

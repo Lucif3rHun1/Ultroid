@@ -235,7 +235,9 @@ async def _(event):
             # Consider it as Code Error, and move on to be shown ahead.
             pass
     reply_to_id = event.reply_to_msg_id or event
-    if any(item in cmd for item in KEEP_SAFE().All) and (
+    from pyUltroid._misc.keep_safe import KEEP_SAFE_TERMS
+
+    if any(item in cmd for item in KEEP_SAFE_TERMS) and (
         not (event.out or event.sender_id == ultroid_bot.uid)
     ):
         warning = await event.forward_to(udB.get_key("LOG_CHANNEL"))

@@ -59,8 +59,6 @@ def main():
     try:
         schedule_health_check(ultroid_bot.loop, udB, name=udB.name)
     except Exception as e:
-        from . import LOGS
-
         LOGS.debug(f"Could not schedule DB health check: {e}")
 
     pmbot = udB.get_key("PMBOT")
@@ -106,11 +104,6 @@ def main():
     # Edit Restarting Message (if It's restarting)
     ultroid_bot.run_in_loop(WasItRestart(udB))
 
-    try:
-        cleanup_cache()
-    except BaseException:
-        pass
-
     LOGS.info(
         f"Took {time_formatter((time.time() - start_time)*1000)} to start •ULTROID•"
     )
@@ -130,8 +123,6 @@ if __name__ == "__main__":
     try:
         install_signal_handlers(asst.loop)
     except Exception as e:
-        from . import LOGS
-
         LOGS.debug(f"Could not install signal handlers: {e}")
 
     asst.run()

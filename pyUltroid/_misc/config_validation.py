@@ -32,7 +32,7 @@ class ValidationError:
 
 _API_ID = re.compile(r"^\d{1,10}$")
 _HEX = re.compile(r"^[0-9a-fA-F]{32,64}$")
-_SESSION_BASE64_URL_SAFE = re.compile(r"^[A-Za-z0-9_\-]{8,}\Z")
+_SESSION_BASE64_URL_SAFE = re.compile(r"^[A-Za-z0-9_\-]{8,}={0,2}\Z")
 _BOT_TOKEN = re.compile(r"^\d{8,12}:[A-Za-z0-9_\-]{30,}$")
 
 

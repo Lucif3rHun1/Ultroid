@@ -203,7 +203,9 @@ if run_as_module:
         dl = await reply.download_media(f"addons/{sm}")
         if event.text[9:] != "f":
             read = open(dl).read()
-            for dan in KEEP_SAFE().All:
+            from .._misc.keep_safe import KEEP_SAFE_TERMS
+
+            for dan in KEEP_SAFE_TERMS:
                 if re.search(dan, read):
                     os.remove(dl)
                     return await ok.edit(

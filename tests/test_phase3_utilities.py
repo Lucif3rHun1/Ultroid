@@ -123,6 +123,24 @@ def test_validate_env_valid():
     assert errs == []
 
 
+def test_validate_env_session_with_padding():
+    """Base64-padded session (ending with '=' or '==') must be accepted."""
+    errs = validate_env({
+        "API_ID": "12345",
+        "API_HASH": "abcdef0123456789abcdef0123456789",
+        "SESSION": "BQA" + "X" * 200 + "=",
+        "REDIS_URI": "redis://localhost:6379/0",
+    })
+    assert not any(e.key == "SESSION" for e in errs), \
+        f"unexpected: {[e for e in errs if e.key == 'SESSION']}"
+
+
+def test_validate_env_session_too_short():
+    """Tiny session is rejected."""
+    errs = validate_env({"SESSION": "abc"})
+    assert any(e.key == "SESSION" for e in errs)
+
+
 def test_validate_env_bad_api_id():
     for bad in ("abc", "12.5", "-1", ""):
         errs = validate_env({"API_ID": bad})

@@ -13,6 +13,13 @@ OPTIONAL_REQ="resources/startup/optional-requirements.txt"
 REQ_FILE="requirements.txt"
 DEPS_MARKER=".deps_installed"
 
+# How long to wait after spawn before declaring the bot "started".
+# 5s is enough for the bot to either fail loudly (bad session,
+# bad DB) or progress past udB connect. Anything longer just
+# delays feedback to the user; they can `bash startup --logs`
+# to follow the rest of the boot in another terminal.
+STARTUP_GRACE_SECS=5
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -34,11 +41,16 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 load_env() {
   if [ -f "$ENV_FILE" ]; then
-    while IFS='=' read -r key value; do
-      case "$key" in
+    # Split each line on the FIRST '=' so values that themselves contain
+    # '=' (notably base64-padded SESSION strings ending in '=') survive
+    # intact. Using IFS='=' here would silently eat a trailing '='.
+    while IFS= read -r line; do
+      case "$line" in
         ''|'#'*) continue ;;
       esac
-      key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      key="${line%%=*}"
+      value="${line#*=}"
+      key="${key// /}"
       [ -n "$key" ] || continue
       export "$key=$value"
     done < "$ENV_FILE"
@@ -223,18 +235,34 @@ start_bot_bg() {
   load_env
   if ! env_ready; then warn "Environment incomplete. Use menu 5/6/7 first."; return 1; fi
   if bot_running; then warn "Bot already running (PID $(cat "$PID_FILE"))."; return 0; fi
+
+  # Truncate the log so any stale startup errors don't mislead the user
+  # into chasing an already-fixed problem.
+  : > "$LOG_FILE"
+
   info "Starting bot in background (fully detached)..."
   pid="$(launch_detached "$LOG_FILE")"
   if [ -z "$pid" ]; then err "Failed to fork background process."; return 1; fi
-  echo "$pid" > "$PID_FILE"
-  sleep 1
-  if kill -0 "$pid" >/dev/null 2>&1; then
-    ok "Started with PID $pid (detached; safe to close this terminal)"
-  else
-    err "Bot exited immediately. Check logs."
+
+  # Give the bot a short grace period to either fail loudly
+  # (bad session, DB unreachable) or progress past initial connect.
+  # Without this, a process that dies in the first second is reported
+  # as "Running" because PID liveness is checked too soon.
+  sleep "$STARTUP_GRACE_SECS"
+
+  if ! kill -0 "$pid" >/dev/null 2>&1; then
+    err "Bot died during startup (PID $pid gone after ${STARTUP_GRACE_SECS}s). Last log lines:"
+    tail -n 15 "$LOG_FILE" 2>/dev/null | sed 's/^/  /'
     rm -f "$PID_FILE"
     return 1
   fi
+
+  # Process is alive after the grace period — record the PID and
+  # declare success. The user can verify full boot with [3] Status
+  # or `bash startup --logs`.
+  echo "$pid" > "$PID_FILE"
+  ok "Started with PID $pid (detached; safe to close this terminal)"
+  info "Run 'bash startup --logs' in another terminal to follow the rest of the boot."
 }
 
 show_status() {

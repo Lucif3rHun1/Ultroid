@@ -127,10 +127,10 @@ check_python() {
   if ! have python3; then err "python3 not found."; return 1; fi
   pyver="$(python3 - <<'PY'
 import sys
-print(f"{sys.version_info.major}.{sys.version_info.minor}")
+print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
 PY
 )"
-  major="${pyver%%.*}"; minor="${pyver#*.}"
+  major="${pyver%%.*}"; minor="${pyver#*.}"; minor="${minor%%.*}"
   if [ "$major" -lt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -lt 10 ]; }; then
     err "Python 3.10+ required. Found $pyver"
     return 1
@@ -185,6 +185,7 @@ install_python_deps() {
 
   info "Upgrading pip..."
   python3 -m pip install -U pip setuptools wheel >/dev/null 2>&1 || true
+  info "Python $pyver — pip upgrades don't touch the interpreter itself; bump Python via your package manager (apt/brew/dnf) or python.org if you want a newer minor."
   info "Installing required packages..."
   python3 -m pip install -r "$REQ_FILE"
   if [ -f "$OPTIONAL_REQ" ]; then
@@ -203,7 +204,6 @@ run_bot_in_venv() {
 
 start_bot_fg() {
   ensure_venv || return 1
-  check_python || return 1
   install_python_deps || return 1
   load_env
   if ! env_ready; then warn "Environment incomplete. Use menu 5/6/7 first."; return 1; fi
@@ -230,7 +230,6 @@ launch_detached() {
 
 start_bot_bg() {
   ensure_venv || return 1
-  check_python || return 1
   install_python_deps || return 1
   load_env
   if ! env_ready; then warn "Environment incomplete. Use menu 5/6/7 first."; return 1; fi

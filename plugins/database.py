@@ -22,17 +22,18 @@ async def _(ult):
     if not match:
         return await ult.eor("Provide key and value to set!")
     try:
-        delim = " " if re.search("[|]", match) is None else " | "
+        delim = " | " if re.search(r"\s\|\s", match) else " "
         data = match.split(delim, maxsplit=1)
         if data[0] in ["--extend", "-e"]:
             data = data[1].split(maxsplit=1)
-            data[1] = f"{str(udB.get_key(data[0]))} {data[1]}"
+            data[1] = f"{udB.get_key(data[0]) or ''} {data[1]}".strip()
         udB.set_key(data[0], data[1])
         await ult.eor(
             f"**DB Key Value Pair Updated\nKey :** `{data[0]}`\n**Value :** `{data[1]}`"
         )
 
-    except BaseException:
+    except Exception as er:
+        LOGS.exception(er)
         await ult.eor(get_string("com_7"))
 
 

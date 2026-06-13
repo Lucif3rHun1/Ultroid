@@ -264,6 +264,25 @@ start_bot_bg() {
   info "Run 'bash startup --logs' in another terminal to follow the rest of the boot."
 }
 
+# Stream the log in real time. Press 'q' (then Enter) to return to
+# the menu. Reading from /dev/tty so the prompt is responsive even
+# though tail is in the background.
+stream_logs() {
+  [ -f "$LOG_FILE" ] || { warn "No log file yet."; return 0; }
+  tail -n +1 -f "$LOG_FILE" &
+  local tail_pid=$!
+  say "${YELLOW}Press 'q' + Enter to return to menu.${RESET}"
+  while kill -0 "$tail_pid" 2>/dev/null; do
+    if read -r -t 1 -n 1 key < /dev/tty 2>/dev/null; then
+      if [ "$key" = "q" ]; then
+        kill "$tail_pid" 2>/dev/null
+        wait "$tail_pid" 2>/dev/null
+        return 0
+      fi
+    fi
+  done
+}
+
 show_status() {
   say "${BOLD}┌─────────────────────────────────────┐${RESET}"
   say "${BOLD}│  🚀 Ultroid Status                  │${RESET}"
@@ -284,11 +303,7 @@ show_status() {
     say "${BOLD}Last 50 log lines:${RESET}"
     tail -n 50 "$LOG_FILE"
   fi
-  printf "\nFollow logs in real time? [y/N]: "
-  read -r ans
-  if is_yes "$ans"; then
-    tail -f "$LOG_FILE"
-  fi
+  stream_logs
 }
 
 stop_bot() {
@@ -306,13 +321,7 @@ stop_bot() {
 }
 
 show_logs() {
-  [ -f "$LOG_FILE" ] || { warn "No log file yet."; return 0; }
-  tail -n 50 "$LOG_FILE"
-  printf "\nFollow logs in real time? [y/N]: "
-  read -r ans
-  if is_yes "$ans"; then
-    tail -f "$LOG_FILE"
-  fi
+  stream_logs
 }
 
 set_bot_token() {

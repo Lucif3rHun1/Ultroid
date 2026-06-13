@@ -41,15 +41,21 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 load_env() {
   if [ -f "$ENV_FILE" ]; then
-    # Split each line on the FIRST '=' so values that themselves contain
-    # '=' (notably base64-padded SESSION strings ending in '=') survive
-    # intact. Using IFS='=' here would silently eat a trailing '='.
-    while IFS= read -r line; do
+    while IFS= read -r line || [ -n "$line" ]; do
+      # strip trailing CR (CRLF from Windows-edited .env) and any
+      # leading UTF-8 BOM on the very first line
+      line="${line%$'\r'}"
+      [ "${line:0:3}" = $'\xef\xbb\xbf' ] && line="${line:3}"
       case "$line" in
         ''|'#'*) continue ;;
       esac
       key="${line%%=*}"
       value="${line#*=}"
+      # unquote wrapped values: SESSION="abc" -> abc, SESSION='abc' -> abc
+      case "$value" in
+        '"'*'"') value="${value#\"}"; value="${value%\"}" ;;
+        "'"*'"'*) value="${value#\'}"; value="${value%\'}" ;;
+      esac
       key="${key// /}"
       [ -n "$key" ] || continue
       export "$key=$value"
@@ -264,23 +270,24 @@ start_bot_bg() {
   info "Run 'bash startup --logs' in another terminal to follow the rest of the boot."
 }
 
-# Stream the log in real time. Press 'q' (then Enter) to return to
-# the menu. Reading from /dev/tty so the prompt is responsive even
-# though tail is in the background.
 stream_logs() {
   [ -f "$LOG_FILE" ] || { warn "No log file yet."; return 0; }
   tail -n +1 -f "$LOG_FILE" &
   local tail_pid=$!
-  say "${YELLOW}Press 'q' + Enter to return to menu.${RESET}"
-  while kill -0 "$tail_pid" 2>/dev/null; do
-    if read -r -t 1 -n 1 key < /dev/tty 2>/dev/null; then
-      if [ "$key" = "q" ]; then
-        kill "$tail_pid" 2>/dev/null
-        wait "$tail_pid" 2>/dev/null
-        return 0
+  if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    say "${YELLOW}Press 'q' + Enter to return to menu.${RESET}"
+    while kill -0 "$tail_pid" 2>/dev/null; do
+      if read -r -t 1 -n 1 key < /dev/tty 2>/dev/null; then
+        if [ "$key" = "q" ]; then
+          kill "$tail_pid" 2>/dev/null
+          wait "$tail_pid" 2>/dev/null
+          return 0
+        fi
       fi
-    fi
-  done
+    done
+  else
+    wait "$tail_pid" 2>/dev/null
+  fi
 }
 
 show_status() {

@@ -379,7 +379,27 @@ class LocalDB(_BaseDatabase):
 
 def UltroidDB():
     _er = False
-    from .. import HOSTED_ON
+    from .. import HOSTED_ON, LOGS as _LOGS
+
+    # Detect the common user trap: multiple DB URIs set at once.
+    # The connection order below would silently pick one and ignore
+    # the others, leading to "I switched to Mongo but my data isn't
+    # there" debugging sessions. Warn loudly instead.
+    _uris_set = []
+    if getattr(Var, "REDIS_URI", None) or getattr(Var, "REDISHOST", None):
+        _uris_set.append("REDIS")
+    if getattr(Var, "MONGO_URI", None):
+        _uris_set.append("MONGO")
+    if getattr(Var, "DATABASE_URL", None):
+        _uris_set.append("POSTGRES")
+    if len(_uris_set) > 1:
+        _LOGS.warning(
+            "Multiple DB URIs set in .env (%s). The first match in the "
+            "if/elif chain below wins; the others will be ignored. "
+            "Clear all but one from your .env to avoid data going to the "
+            "wrong backend.",
+            ", ".join(_uris_set),
+        )
 
     try:
         if Redis and (Var.REDIS_URI or Var.REDISHOST):

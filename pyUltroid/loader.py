@@ -40,6 +40,10 @@ class Loader:
                 path = f"{self.path}/{file}.py"
                 if os.path.exists(path):
                     files.append(path)
+                else:
+                    self._logger.warning(
+                        f"ESSENTIAL_PLUGINS requested '{file}' but {path} does not exist"
+                    )
         elif _single:
             files = [self.path]
         else:

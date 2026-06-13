@@ -10,11 +10,11 @@ class _DB:
         del key, value
 
 ESSENTIAL_PLUGINS = {
-    "core": ["_help", "_inline", "_userlogs", "_wspr", "core"],
-    "admin": ["admin", "ban", "unban", "pin", "promote", "demote"],
-    "tools": ["calculator", "translate", "search", "calc"],
-    "media": ["sticker", "download", "tts"],
-    "system": ["eval", "logs", "ping", "restart", "update"],
+    "core": ["_help", "_inline", "_userlogs", "_wspr", "_ultroid", "bot", "core"],
+    "tools": ["tools", "database"],
+    "admin": [],
+    "media": [],
+    "system": [],
 }
 
 

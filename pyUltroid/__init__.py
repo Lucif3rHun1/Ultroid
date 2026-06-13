@@ -89,13 +89,21 @@ if run_as_module:
                 '"BOT_TOKEN" not Found! Continuing with startup; bot features will stay limited until it is added.'
             )
     else:
-        if udB.get_key("SESSION") and not udB.get_key("BOT_TOKEN"):
+        # Read BOT_TOKEN from .env (source of truth), not the DB. A stale
+        # BOT_TOKEN in the DB from a previous autobot run would otherwise
+        # block this fallback and cause asst to be instantiated as a
+        # separate client that then fails to authenticate.
+        _has_bot_token_env = bool(getattr(Var, "BOT_TOKEN", None))
+        _has_bot_token_db = bool(udB.get_key("BOT_TOKEN"))
+        if udB.get_key("SESSION") and not _has_bot_token_env:
             LOGS.info(
                 "BOT_TOKEN is not set; running in USER_MODE (asst = ultroid_bot). "
                 "Add BOT_TOKEN to your .env to use a separate assistant bot."
+                + (f" (ignoring stale DB value: '{_has_bot_token_db}')" if _has_bot_token_db else "")
             )
             USER_MODE = True
             udB.set_key("USER_MODE", True)
+            udB.del_key("BOT_TOKEN")
         try:
             session = validate_session(getattr(Var, "SESSION", None), LOGS)
         except Exception:

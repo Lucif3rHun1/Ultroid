@@ -126,10 +126,9 @@ def update_envs():
             envs in ["LOG_CHANNEL", "BOT_TOKEN", "BOTMODE", "DUAL_MODE", "language"]
             or envs in udB.keys()
         ):
-            if _value := os.environ.get(envs):
+            _value = os.environ.get(envs) or config.config.get(envs)
+            if _value:  # skip None / "" — never write the literal string "None" to DB
                 udB.set_key(envs, _value)
-            else:
-                udB.set_key(envs, config.config.get(envs))
 
 
 async def startup_stuff():

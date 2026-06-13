@@ -229,9 +229,13 @@ async def when_added_or_joined(event):
     await asst.send_message(udB.get_key("LOG_CHANNEL"), text, buttons=buttons)
 
 
-asst.add_event_handler(
-    when_added_or_joined, events.ChatAction(func=lambda x: x.user_added)
-)
+# When the user is in USER_MODE (no BOT_TOKEN), asst IS ultroid_bot.
+# Registering the same handler on both would fire it twice. Guard with
+# an identity check so only one client owns the listener.
+if asst is not ultroid_bot:
+    asst.add_event_handler(
+        when_added_or_joined, events.ChatAction(func=lambda x: x.user_added)
+    )
 ultroid_bot.add_event_handler(
     when_added_or_joined,
     events.ChatAction(func=lambda x: x.user_added or x.user_joined),

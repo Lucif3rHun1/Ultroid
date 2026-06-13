@@ -13,7 +13,7 @@ __doc__ = get_help("help_database")
 
 import re
 
-from . import Redis, eor, get_string, udB, ultroid_cmd
+from . import LOGS, Redis, eor, get_string, udB, ultroid_cmd
 
 
 @ultroid_cmd(pattern="setdb( (.*)|$)", fullsudo=True)
@@ -44,6 +44,7 @@ async def _(ult):
         return await ult.eor("Give me a key name to delete!", time=5)
     _ = key.split(maxsplit=1)
     try:
+        k = 0
         if _[0] == "-m":
             for key in _[1].split():
                 k = udB.del_key(key)

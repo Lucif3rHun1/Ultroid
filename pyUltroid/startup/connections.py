@@ -43,9 +43,11 @@ def validate_session(session, logger=LOGS, _exit=True):
     if session:
         # Telethon Session
         if session.startswith(CURRENT_VERSION):
-            if len(session.strip()) != 353:
+            try:
+                return StringSession(session.strip())
+            except Exception as er:
+                logger.exception(er)
                 return _fail("py_c1")
-            return StringSession(session)
 
         # Pyrogram Session
         elif len(session) in _PYRO_FORM.keys():

@@ -424,7 +424,8 @@ def ultroid_cmd(
         if TAKE_EDITS:
 
             def func_(x):
-                return not x.via_bot_id and not (x.is_channel and x.chat.broadcast)
+                base = func(x) if callable(func) else True
+                return base and not x.via_bot_id and not (x.is_channel and x.chat.broadcast)
 
             ultroid_bot.add_event_handler(
                 wrapp,
@@ -449,17 +450,18 @@ def ultroid_cmd(
                 try:
                     await dec(ult)
                 except Exception as er:
+                    LOGS.info(f"• MANAGER [{ult.chat_id}]:")
+                    LOGS.exception(er)
                     if chat := udB.get_key("MANAGER_LOG"):
                         text = f"**#MANAGER_LOG\n\nChat:** `{get_display_name(ult.chat)}` `{ult.chat_id}`"
                         text += f"\n**Replied :** `{ult.is_reply}`\n**Command :** {ult.text}\n\n**Error :** `{er}`"
                         try:
-                            return await asst.send_message(
+                            await asst.send_message(
                                 chat, text, link_preview=False
                             )
-                        except Exception as er:
-                            LOGS.exception(er)
-                    LOGS.info(f"• MANAGER [{ult.chat_id}]:")
-                    LOGS.exception(er)
+                        except Exception as _log_err:
+                            LOGS.exception(_log_err)
+                    return await eod(ult, get_string("com_7"), time=8)
 
             if pattern:
                 cmd = compile_pattern(pattern, "/")

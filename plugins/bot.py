@@ -45,7 +45,6 @@ from . import (
     allcmds,
     asst,
     bash,
-    call_back,
     callback,
     def_logs,
     eor,
@@ -205,7 +204,7 @@ heroku_api = Var.HEROKU_API
 )
 async def restartbt(ult):
     ok = await ult.eor(get_string("bot_5"))
-    call_back()
+    callback()
     who = "bot" if ult.client._bot else "user"
     udB.set_key("_RESTART", f"{who}_{ult.chat_id}_{ok.id}")
     if heroku_api:
@@ -326,7 +325,7 @@ async def _(e):
     ):
         await bash("git pull -f && pip3 install -r requirements.txt")
         await bash("pip3 install -r requirements.txt --break-system-packages")
-        call_back()
+        callback()
         await xx.edit(get_string("upd_7"))
         os.execl(sys.executable, "python3", "-m", "pyUltroid")
         # return

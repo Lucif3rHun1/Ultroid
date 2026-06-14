@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# deploy — single-shot: pull latest, restart bot, verify boot health.
+# Usage: bash deploy [--no-pull] [--no-restart]
+#
+# Designed to be safe to re-run; idempotent.
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
+
+DO_PULL=1
+DO_RESTART=1
+for arg in "$@"; do
+  case "$arg" in
+    --no-pull) DO_PULL=0 ;;
+    --no-restart) DO_RESTART=0 ;;
+    --help|-h)
+      echo "Usage: bash deploy [--no-pull] [--no-restart]"
+      exit 0
+      ;;
+  esac
+done
+
+step() { printf "\n\033[1;36m▶ %s\033[0m\n" "$*"; }
+ok()   { printf "  \033[1;32m✓\033[0m %s\n" "$*"; }
+fail() { printf "  \033[1;31m✗\033[0m %s\n" "$*"; }
+
+# 1. Pull
+if [ "$DO_PULL" = 1 ]; then
+  step "git pull origin main"
+  if git pull --ff-only origin main 2>&1 | tail -5; then
+    ok "pulled"
+  else
+    fail "git pull failed (you may have local commits; resolve manually)"
+    exit 1
+  fi
+else
+  step "git pull (skipped)"
+fi
+
+# 2. Stop any running bot
+if [ "$DO_RESTART" = 1 ]; then
+  step "stop existing bot"
+  bash startup --stop 2>&1 | tail -3 || true
+  ok "stopped"
+fi
+
+# 3. Start fresh in background
+if [ "$DO_RESTART" = 1 ]; then
+  step "start bot"
+  bash startup 2>&1 | tail -5 || true
+  sleep 3
+  ok "start command issued"
+fi
+
+# 4. Wait for boot log to settle
+step "wait for boot to complete"
+PID=$(cat .ultroid.pid 2>/dev/null || true)
+if [ -z "${PID:-}" ]; then
+  fail "no .ultroid.pid — bot may not have started"
+  exit 1
+fi
+ok "PID=$PID"
+
+# Poll for the boot-completed marker (max 30s)
+for i in $(seq 1 30); do
+  if grep -q "ULTROID\|Took .* to start" .ultroid.log 2>/dev/null; then
+    ok "boot log shows startup complete (after ${i}s)"
+    break
+  fi
+  sleep 1
+done
+
+# 5. Health checks on the boot log
+step "boot-log health checks"
+LOG=.ultroid.log
+FAIL=0
+
+check() {
+  local desc="$1" pattern="$2" invert="${3:-}"
+  if grep -qE "$pattern" "$LOG" 2>/dev/null; then
+    if [ "$invert" = "invert" ]; then
+      fail "$desc  (pattern found: $pattern)"
+      FAIL=1
+    else
+      ok "$desc"
+    fi
+  else
+    if [ "$invert" = "invert" ]; then
+      ok "$desc"
+    else
+      fail "$desc  (pattern not found: $pattern)"
+      FAIL=1
+    fi
+  fi
+}
+
+check "9 essential plugins loaded"  "Loaded (_help|_inline|_userlogs|_wspr|_ultroid|bot|core|tools|database) in"
+check "no plugin ImportError"        "cannot import name"          invert
+check "no call_back typo regression" "call_back"                  invert
+check "no ModuleNotFoundError"       "'akipy\\.async_akipy'"      invert
+check "no SESSION length rejection"  "py_c1"                      invert
+check "no Telethon auth failure"     "AUTH_KEY_DUPLICATED|AuthKeyError" invert
+
+# 6. Show last 15 log lines
+step "last 15 log lines"
+tail -15 "$LOG" 2>/dev/null | sed 's/^/  /'
+
+# 7. Final verdict
+echo
+if [ "$FAIL" = 0 ]; then
+  printf "\033[1;32m┌─────────────────────────────────────┐\n"
+  printf "│  ✅ Bot is healthy — try .id / .alive │\n"
+  printf "└─────────────────────────────────────┘\033[0m\n"
+  exit 0
+else
+  printf "\033[1;31m┌─────────────────────────────────────┐\n"
+  printf "│  ✗ Health check FAILED — see above   │\n"
+  printf "└─────────────────────────────────────┘\033[0m\n"
+  exit 1
+fi
